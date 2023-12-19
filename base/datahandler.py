@@ -40,7 +40,11 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
             # Create 'EW' and 'NS' labels
             # TODO: "ES"-rows are just dropped here
             object_labels_EW['EW'] = object_labels_EW['Node'] + '-' + object_labels_EW['Type']
+            object_labels_EW['EW_Node'] = object_labels_EW['Node']
+            object_labels_EW['EW_Type'] = object_labels_EW['Type']
             object_labels_NS['NS'] = object_labels_NS['Node'] + '-' + object_labels_NS['Type']
+            object_labels_NS['NS_Node'] = object_labels_NS['Node']
+            object_labels_NS['NS_Type'] = object_labels_NS['Type']
             object_labels_EW.drop(['Node', 'Type', 'Direction'], axis=1, inplace=True)
             object_labels_NS.drop(['Node', 'Type', 'Direction'], axis=1, inplace=True)
 
@@ -56,10 +60,18 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
             
             # Fill 'unknown' values in 'EW' and 'NS' columns that come before the first valid observation
             object_df['EW'].ffill(inplace=True)
+            object_df['EW_Node'].ffill(inplace=True)
+            object_df['EW_Type'].ffill(inplace=True)
             object_df['NS'].ffill(inplace=True)
+            object_df['NS_Node'].ffill(inplace=True)
+            object_df['NS_Type'].ffill(inplace=True)
         else:
             object_df['EW'] = 'UNKNOWN'
+            object_df['EW_Node'] = 'UNKNOWN'
+            object_df['EW_Type'] = 'UNKNOWN'
             object_df['NS'] = 'UNKNOWN'
+            object_df['NS_Node'] = 'UNKNOWN'
+            object_df['NS_Type'] = 'UNKNOWN'
         
 
         object_dataframes[str(object_id)] = object_df
@@ -68,6 +80,7 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
 
 # now we need to create the datasets using a sliding window approach
 # each window contains the input features over the last n feature steps, and tries to predict the current label (either EW or NS)
+# TODO: enable use of individual label features - such as Node and Type Label
 class DatasetGenerator():
     def __init__(self,
                  split_df,
