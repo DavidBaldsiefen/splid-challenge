@@ -65,7 +65,6 @@ class NodeDetectionEvaluator:
         total_fp = 0
         total_fn = 0
         total_distances = []
-
         for object_id in self.ground_truth['ObjectID'].unique():
             _, _, _, gt_object, p_object = self.evaluate(object_id)
             
@@ -75,7 +74,8 @@ class NodeDetectionEvaluator:
             total_distances.extend(
                 p_object[p_object['classification'] == 'TP']['distance'].tolist()
             )
-
+        if ((total_tp + total_fp) < 1):
+            print("Warning: about to throw div0 error, which is most likely because objects cannot be matched. Did you compare train results agaist val-ground_truth?")
         precision = total_tp / (total_tp + total_fp)
         recall = total_tp / (total_tp + total_fn)
         f2 = (5 * total_tp) / (5 * total_tp + 4 * total_fn + total_fp)
