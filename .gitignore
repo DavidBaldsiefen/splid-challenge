@@ -3,6 +3,12 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# Dataset & Files
+dataset/
+predictions/
+submission/
+trained_models/
+
 # User-specific files
 *.rsuser
 *.suo
