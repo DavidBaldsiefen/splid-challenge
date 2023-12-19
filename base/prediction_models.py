@@ -14,7 +14,7 @@ class Prediction_Model():
     def compile(self, optimizer=keras.optimizers.legacy.Adam(), loss_fn=keras.losses.MeanSquaredError(), metrics=['mse']):
         # TODO: try RMSprop?
         assert(self._model is not None)
-        self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics)
+        self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics, weighted_metrics=[])
 
     def evaluate(self, ds, verbose=1):
         assert(self._model is not None)
@@ -153,7 +153,10 @@ class Dense_NN(Prediction_Model):
         # determine input shape
         in_shape = ds.element_spec[0].shape.as_list()
         in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
-        
+
+        # determine number of outputs
+        n_outputs = len(ds.element_spec)-1
+
         inputs = layers.Input(shape=in_shape)
         x = inputs
 
@@ -175,12 +178,16 @@ class Dense_NN(Prediction_Model):
                                bias_initializer=self.createInitializer('zeros'))(x)
             if mixed_dropout > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
-        output = layers.Dense(units=20,
-                               activation="linear",
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(x)
-        self._model = keras.Model(inputs=inputs, outputs=output)
+        outputs = []
+        for out_idx in range(n_outputs):
+            output = layers.Dense(units=20,
+                                activation="linear",
+                                kernel_regularizer=regularizers.l2(l2_reg),
+                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                bias_initializer=self.createInitializer('zeros'),
+                                name=f'output_{out_idx}')(x)
+            outputs.append(output)
+        self._model = keras.Model(inputs=inputs, outputs=outputs)
 
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:
@@ -189,7 +196,7 @@ class Dense_NN(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        self.compile(optimizer=optimizer, loss_fn=tf.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(n_outputs)], metrics=['accuracy'])
 
 class CNN(Prediction_Model):
     def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[64,64,64], l2_reg=0.0, lr_scheduler=[], seed=None):

@@ -99,7 +99,7 @@ class DatasetGenerator():
         self._input_features=input_features
         self._label_features=label_features
         self._input_feature_indices = {name:i for i, name in enumerate(input_features)}
-        self._label_feature_indices = {name:i for i, name in enumerate(label_features)}
+        self._label_feature_indices = {name:i for i, name in enumerate(label_features)} if label_features else None
         self.seed = seed
         
         # now, create the train and val split
@@ -177,39 +177,36 @@ class DatasetGenerator():
                                     tf.data.Dataset.from_tensor_slices((element_identifiers))))
             return ds
 
-    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], shuffle=True, with_identifiers=False):
+    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], keep_identifier=False, shuffle=True):
         # returns copies of the datasets
         datasets = [self._train_ds, self._val_ds]
         if self._val_ds is None:
             datasets = [self._train_ds]
-        datasets = [self.set_ds_label_features(ds, label_features) for ds in datasets]
-        if not with_identifiers:
-            datasets = [self.remove_identifier(ds) for ds in datasets]
+        datasets = [self.set_ds_outputs(ds, label_features, keep_identifier) for ds in datasets]
         if shuffle:
             datasets = [ds.shuffle(ds.cardinality(), seed=self.seed) for ds in datasets]
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]
     
-    def remove_identifier(self, ds):
-        if self._label_features:
-            def rm_id_func(x,y,z):
-                return x,y
-            return ds.map(rm_id_func)
-        else:
-            def rm_id_func(x,z):
-                return x
-            return ds.map(rm_id_func)
-    
-    def set_ds_label_features(self, ds, label_features):
+    def set_ds_outputs(self, ds, label_features, keep_identifier):
         if not set(label_features).issubset(self._label_features):
-            print(f"Warning: labels {label_features} ar not contained in the labels of DatasetGenerator: {self._label_features}. Proceeding with all labels")
-            return ds
-        label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
-        def map_label_features(x,y,z):
-            y_sliced = tf.gather(y, label_feature_indices, axis=0)
-            return x,y_sliced,z
-        return ds.map(map_label_features)
+            print(f"Warning: labels {label_features} ar not contained in the labels of DatasetGenerator: {self._label_features}. Proceeding with all labels contained in DatasetGenerator")
+            label_features = self._label_features
+        # make sure we consider the fact that there may not be any labels
+        if self._label_features:
+            label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
+            def output_mapper(x,y,z):
+                outputs = [x] + [y[i] for i in label_feature_indices]
+                if keep_identifier: outputs += [z]
+                return tuple(outputs)
+            return ds.map(output_mapper)
+        else:
+            def output_mapper(x,z):
+                outputs = [x]
+                if keep_identifier: outputs += [z]
+                return tuple(outputs)
+            return ds.map(output_mapper)
         
     def get_dataset_statistics(self, train=True, labels=False):
         input_features = np.array([(ft.numpy() if not labels else lb.numpy()) for ft, lb in (self.train_ds if train else self.val_ds)])
