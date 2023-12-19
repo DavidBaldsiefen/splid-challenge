@@ -86,6 +86,7 @@ class DatasetGenerator():
                  split_df,
                  input_steps=10, # how many input timesteps we get
                  input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
+                 label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
                  stride=1, # distance between datapoints
                  shuffle_train_val=True,
                  seed=42,
@@ -95,8 +96,10 @@ class DatasetGenerator():
 
         split_df = copy.deepcopy(split_df)
 
-        self.input_features=input_features
+        self._input_features=input_features
+        self._label_features=label_features
         self._input_feature_indices = {name:i for i, name in enumerate(input_features)}
+        self._label_feature_indices = {name:i for i, name in enumerate(label_features)}
         self.seed = seed
         
         # now, create the train and val split
@@ -117,30 +120,38 @@ class DatasetGenerator():
                 split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
 
         # encode labels
-        possible_labels = ['UNKNOWN']
-        for node_label in ['SS', 'ES', 'ID', 'AD', 'IK']:
-            for type_label in ['NK', 'CK', 'EK', 'HK']:
-                possible_labels.append(node_label + '-' + type_label)
-        self._label_encoder = LabelEncoder()
-        self._label_encoder.fit(possible_labels)
-        for key, sub_df in split_df.items():
-            sub_df['EW_encoded'] = self._label_encoder.transform(sub_df['EW'])
-            sub_df['NS_encoded'] = self._label_encoder.transform(sub_df['NS'])
+        if label_features:
+            possible_node_labels = ['SS', 'ES', 'ID', 'AD', 'IK']
+            possible_type_labels = ['NK', 'CK', 'EK', 'HK']
+            possible_combined_labels = [node_label + '-' + type_label for node_label in possible_node_labels for type_label in possible_type_labels]
+            self._node_label_encoder = LabelEncoder().fit(possible_node_labels)
+            self._type_label_encoder = LabelEncoder().fit(possible_type_labels)
+            self._combined_label_encoder = LabelEncoder().fit(possible_combined_labels)
+            for key, sub_df in split_df.items():
+                sub_df['EW_Node_encoded'] = self._node_label_encoder.transform(sub_df['EW_Node'])
+                sub_df['NS_Node_encoded'] = self._node_label_encoder.transform(sub_df['NS_Node'])
+                sub_df['EW_Type_encoded'] = self._type_label_encoder.transform(sub_df['EW_Type'])
+                sub_df['NS_Type_encoded'] = self._type_label_encoder.transform(sub_df['NS_Type'])
+                sub_df['EW_encoded'] = self._combined_label_encoder.transform(sub_df['EW'])
+                sub_df['NS_encoded'] = self._combined_label_encoder.transform(sub_df['NS'])
+            label_features_encoded = [feature + '_encoded' for feature in label_features]
+            if verbose > 0:
+                print(f"Creating datasets with labels {self._lable_features}")
+        else:
+            if verbose > 0:
+                print("Creating datasets without labels.")
 
         # create datasets using timewindows
-        self._train_ds_EW, self._train_ds_NS = self.create_ds_from_dataframes(split_df, self._train_keys, input_features, input_steps, stride)
-        if self.val_keys:
-            self._val_ds_EW, self._val_ds_NS = self.create_ds_from_dataframes(split_df, self.val_keys, input_features, input_steps, stride)
-        else:
-            self._val_ds_EW, self._val_ds_NS = None, None
+        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, label_features_encoded, input_steps, stride)
+        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, label_features_encoded, input_steps, stride) if self.val_keys else None
                     
         if verbose > 0:
             print(f"Created datasets with seed {self.seed}")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, input_steps, stride):
+    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_steps, stride):
         n_rows = np.sum([len(split_df[key]) for key in keys])
         inputs = np.zeros(shape=(n_rows, input_steps, len(input_features)))
-        labels_EW, labels_NS = np.zeros(shape=(n_rows, 1)), np.zeros(shape=(n_rows, 1))
+        labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
         for key in keys:
@@ -151,34 +162,54 @@ class DatasetGenerator():
             current_index = input_steps
             while(current_index <= extended_df.shape[0]):
                 inputs[current_row] = extended_df[input_features][current_index-input_steps:current_index].to_numpy(dtype=np.float32)
-                labels_EW[current_row] = extended_df['EW_encoded'][current_index-1] # -1 as input slice indexing excludes last index
-                labels_NS[current_row] = extended_df['NS_encoded'][current_index-1]
-                element_identifiers[current_row] = extended_df[['ObjectID', 'TimeIndex']][current_index-1:current_index].to_numpy(dtype=np.int32) # need to slice for 1 element to prevent keyerror
+                if label_features:
+                    labels[current_row] = extended_df[label_features][current_index-1:current_index] # -1 as input slice indexing excludes last index, need to slice for 1 element to prevent keyerror
+                element_identifiers[current_row] = extended_df[['ObjectID', 'TimeIndex']][current_index-1:current_index].to_numpy(dtype=np.int32) # see above
                 current_index += stride
                 current_row+=1
-        ds_EW = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
-                                        tf.data.Dataset.from_tensor_slices((labels_EW)),
-                                        tf.data.Dataset.from_tensor_slices((element_identifiers))))
-        ds_NS = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
-                                        tf.data.Dataset.from_tensor_slices((labels_NS)),
-                                        tf.data.Dataset.from_tensor_slices((element_identifiers))))
-        return ds_EW, ds_NS
+        if label_features:
+            ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
+                                    tf.data.Dataset.from_tensor_slices((labels)),
+                                    tf.data.Dataset.from_tensor_slices((element_identifiers))))
+            return ds
+        else:
+            ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
+                                    tf.data.Dataset.from_tensor_slices((element_identifiers))))
+            return ds
 
-    def get_datasets(self, batch_size=None, shuffle=True, with_identifiers=False):
+    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], shuffle=True, with_identifiers=False):
         # returns copies of the datasets
-        datasets = [self._train_ds_EW, self._train_ds_NS, self._val_ds_EW, self._val_ds_NS]
-        if self._val_ds_EW is None:
-            datasets = [self._train_ds_EW, self._train_ds_NS]
+        datasets = [self._train_ds, self._val_ds]
+        if self._val_ds is None:
+            datasets = [self._train_ds]
+        datasets = [self.set_ds_label_features(ds, label_features) for ds in datasets]
         if not with_identifiers:
             datasets = [self.remove_identifier(ds) for ds in datasets]
         if shuffle:
             datasets = [ds.shuffle(ds.cardinality(), seed=self.seed) for ds in datasets]
-        return [ds.batch(batch_size) if batch_size is not None else ds for ds in datasets]
+        if batch_size is not None:
+            datasets = [ds.batch(batch_size) for ds in datasets]
+        return datasets if len(datasets)>1 else datasets[0]
     
     def remove_identifier(self, ds):
-        def rm_id_func(x,y,z):
-            return x,y
-        return ds.map(rm_id_func)
+        if self._label_features:
+            def rm_id_func(x,y,z):
+                return x,y
+            return ds.map(rm_id_func)
+        else:
+            def rm_id_func(x,z):
+                return x
+            return ds.map(rm_id_func)
+    
+    def set_ds_label_features(self, ds, label_features):
+        if not set(label_features).issubset(self._label_features):
+            print(f"Warning: labels {label_features} ar not contained in the labels of DatasetGenerator: {self._label_features}. Proceeding with all labels")
+            return ds
+        label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
+        def map_label_features(x,y,z):
+            y_sliced = tf.gather(y, label_feature_indices, axis=0)
+            return x,y_sliced,z
+        return ds.map(map_label_features)
         
     def get_dataset_statistics(self, train=True, labels=False):
         input_features = np.array([(ft.numpy() if not labels else lb.numpy()) for ft, lb in (self.train_ds if train else self.val_ds)])
@@ -192,8 +223,16 @@ class DatasetGenerator():
         return self._input_feature_indices
     
     @property
-    def label_encoder(self):
-        return self._label_encoder
+    def node_label_encoder(self):
+        return self._node_label_encoder
+    
+    @property
+    def type_label_encoder(self):
+        return self._type_label_encoder
+    
+    @property
+    def combined_label_encoder(self):
+        return self._combined_label_encoder
     
     @property
     def train_keys(self):
