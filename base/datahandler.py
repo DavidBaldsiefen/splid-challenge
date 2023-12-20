@@ -136,7 +136,7 @@ class DatasetGenerator():
                 sub_df['NS_encoded'] = self._combined_label_encoder.transform(sub_df['NS'])
             label_features_encoded = [feature + '_encoded' for feature in label_features]
             if verbose > 0:
-                print(f"Creating datasets with labels {self._lable_features}")
+                print(f"Creating datasets with labels {self._label_features}")
         else:
             if verbose > 0:
                 print("Creating datasets without labels.")

@@ -53,10 +53,10 @@ class Prediction_Model():
         
         return hist
     
-    def plot_hist(self, hist):
+    def plot_hist(self, hist, keys=None):
         fig = plt.figure(figsize=(4, 3))
         ax = fig.add_subplot(111)
-        for key in hist.history.keys():
+        for key in (hist.history.keys() if keys is None else keys):
             ax.plot(hist.history[key][1:], label=key)
         ax.legend()
         fig.show()
