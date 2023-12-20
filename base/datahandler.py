@@ -125,6 +125,7 @@ class DatasetGenerator():
                 split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
 
         # encode labels
+        self._label_features_encoded = []
         if label_features:
             possible_node_labels = ['SS', 'ES', 'ID', 'AD', 'IK']
             possible_type_labels = ['NK', 'CK', 'EK', 'HK']
@@ -139,7 +140,7 @@ class DatasetGenerator():
                 sub_df['NS_Type_encoded'] = self._type_label_encoder.transform(sub_df['NS_Type'])
                 sub_df['EW_encoded'] = self._combined_label_encoder.transform(sub_df['EW'])
                 sub_df['NS_encoded'] = self._combined_label_encoder.transform(sub_df['NS'])
-            label_features_encoded = [feature + '_encoded' for feature in label_features]
+            self._label_features_encoded = [feature + '_encoded' for feature in label_features]
             if verbose > 0:
                 print(f"Creating datasets with labels {self._label_features}")
         else:
@@ -147,8 +148,8 @@ class DatasetGenerator():
                 print("Creating datasets without labels.")
 
         # create datasets using timewindows
-        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, label_features_encoded, input_steps, stride)
-        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, label_features_encoded, input_steps, stride) if self.val_keys else None
+        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_steps, stride)
+        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_steps, stride) if self.val_keys else None
                     
         if verbose > 0:
             print(f"Created datasets with seed {self.seed}")
@@ -174,7 +175,7 @@ class DatasetGenerator():
                 current_row+=1
         if label_features:
             ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
-                                    tf.data.Dataset.from_tensor_slices((labels)),
+                                    tf.data.Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)})),
                                     tf.data.Dataset.from_tensor_slices((element_identifiers))))
             return ds
         else:
@@ -202,7 +203,8 @@ class DatasetGenerator():
         if self._label_features:
             label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
             def output_mapper(x,y,z):
-                outputs = [x] + [y[i] for i in label_feature_indices]
+                #outputs = [x] + [y[i] for i in label_feature_indices]
+                outputs = [x] + [{ft:y[ft + '_encoded'] for ft in label_features}]
                 #outputs = [x] + [tf.gather(y, label_feature_indices, axis=0)]
                 if keep_identifier: outputs += [z]
                 return tuple(outputs)
