@@ -112,6 +112,11 @@ class DatasetGenerator():
         if verbose>0:
             print(f"Creating dataset from {len(self._train_keys)} train and {len(self._val_keys)} val objects")
 
+        # Run sin over Mean and True Anomaly, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
+        for key in self._train_keys + self._val_keys:
+            split_df[key]['Mean Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['Mean Anomaly (deg)']))
+            split_df[key]['True Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['True Anomaly (deg)']))
+
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
             concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
@@ -198,6 +203,7 @@ class DatasetGenerator():
             label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
             def output_mapper(x,y,z):
                 outputs = [x] + [y[i] for i in label_feature_indices]
+                #outputs = [x] + [tf.gather(y, label_feature_indices, axis=0)]
                 if keep_identifier: outputs += [z]
                 return tuple(outputs)
             return ds.map(output_mapper)

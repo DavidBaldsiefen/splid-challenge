@@ -14,7 +14,7 @@ class Prediction_Model():
     def compile(self, optimizer=keras.optimizers.legacy.Adam(), loss_fn=keras.losses.MeanSquaredError(), metrics=['mse']):
         # TODO: try RMSprop?
         assert(self._model is not None)
-        self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics, weighted_metrics=[])
+        self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics)
 
     def evaluate(self, ds, verbose=1):
         assert(self._model is not None)
@@ -155,7 +155,7 @@ class Dense_NN(Prediction_Model):
         in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
 
         # determine number of outputs
-        n_outputs = len(ds.element_spec)-1
+        n_outputs = 2#len(ds.element_spec)-1
 
         inputs = layers.Input(shape=in_shape)
         x = inputs
