@@ -153,7 +153,6 @@ class Dense_NN(Prediction_Model):
         # determine input shape
         in_shape = ds.element_spec[0].shape.as_list()
         in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
-        print(in_shape)
 
         inputs = layers.Input(shape=in_shape, name='Input')
         x = inputs

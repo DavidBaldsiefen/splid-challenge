@@ -114,8 +114,10 @@ class DatasetGenerator():
 
         # Run sin over Mean and True Anomaly, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
         for key in self._train_keys + self._val_keys:
-            split_df[key]['Mean Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['Mean Anomaly (deg)']))
-            split_df[key]['True Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['True Anomaly (deg)']))
+            if ['Mean Anomaly (deg)'] in input_features:
+                split_df[key]['Mean Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['Mean Anomaly (deg)']))
+            if ['True Anomaly (deg)'] in input_features:
+                split_df[key]['True Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['True Anomaly (deg)']))
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
