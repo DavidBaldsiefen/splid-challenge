@@ -224,13 +224,23 @@ class CNN(Prediction_Model):
 
         x = layers.GlobalAveragePooling1D()(x)
         x = layers.Flatten()(x)
-            
-        output = layers.Dense(units=20,
-                            activation="linear",
-                            kernel_regularizer=regularizers.l2(l2_reg),
-                            kernel_initializer=self.createInitializer('glorot_uniform'),
-                            bias_initializer=self.createInitializer('zeros'))(x)
-        self._model = keras.Model(inputs=inputs, outputs=output)
+
+        outputs = []
+        for out_idx, out_feature in enumerate(ds.element_spec[1]):
+            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
+            n_units = 20
+            if '_Node' in out_feature:
+                n_units = 5
+            elif '_Type' in out_feature:
+                n_units = 4
+            output = layers.Dense(units=n_units,
+                                activation="linear",
+                                kernel_regularizer=regularizers.l2(l2_reg),
+                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                bias_initializer=self.createInitializer('zeros'),
+                                name=out_feature)(x)
+            outputs.append(output)
+        self._model = keras.Model(inputs=inputs, outputs=outputs)
 
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:
@@ -239,7 +249,7 @@ class CNN(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        self.compile(optimizer=optimizer, loss_fn=tf.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class Anchored_Regularizer(tf.keras.regularizers.Regularizer):
     """A Regularizer that regularizes around an anchor distribution"""
