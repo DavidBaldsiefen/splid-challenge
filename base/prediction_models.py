@@ -23,6 +23,8 @@ class Prediction_Model():
     def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, best_model_filepath='best_model.hdf5', target_metric='val_accuracy', callbacks=[], plot_hist=False, verbose=1):
         assert(self._model is not None)
 
+        callbacks=callbacks
+
         # add callbacks
         if early_stopping > 0:
             callbacks.append(keras.callbacks.EarlyStopping(monitor=target_metric,
