@@ -42,18 +42,23 @@ class Prediction_Model():
         if verbose>0:
             print(f"Starting training. Optimizing \"{target_metric}\"")
 
-        hist = self._model.fit(train_ds, validation_data=val_ds, verbose=verbose, epochs=epochs, callbacks=callbacks)
-        self._hist = hist
+        self._hist = self._model.fit(train_ds, validation_data=val_ds, verbose=verbose, epochs=epochs, callbacks=callbacks)
 
         if save_best_only:
             self._model.load_weights(best_model_filepath)
 
         if verbose>0:
-            print(f"Finished training after {len(hist.history['loss'])} epochs." + f"Lowest {target_metric}: {np.min(hist.history[target_metric]):.4}  (epoch {np.argmin(hist.history[target_metric]) + 1})" if target_metric in hist.history.keys() else "")
+            print(f"Finished training after {len(self._hist.history['loss'])} epochs.")
 
-        if plot_hist: self.plot_hist(hist)
+        if verbose>0:
+            print("Evaluating model:")
+            self._model.evaluate(train_ds, verbose=verbose)
+            if val_ds is not None:
+                self._model.evaluate(val_ds, verbose=verbose)
+
+        if plot_hist: self.plot_hist(self._hist)
         
-        return hist
+        return self._hist
     
     def plot_hist(self, hist, keys=None):
         fig = plt.figure(figsize=(4, 3))

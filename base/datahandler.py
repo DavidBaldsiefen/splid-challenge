@@ -101,18 +101,32 @@ class DatasetGenerator():
         self._label_features=label_features
         self._input_feature_indices = {name:i for i, name in enumerate(input_features)}
         self._label_feature_indices = {name:i for i, name in enumerate(label_features)} if label_features else None
-        self.seed = seed
+        self._seed = seed
+
+        if verbose>0:
+            print(f"=========================Creating Dataset=========================\nSeed: {self._seed}")
         
         # now, create the train and val split
         keys_list = list(split_df.keys())
         if shuffle_train_val:
-            random.Random(self.seed).shuffle(keys_list) # shuffle, but with a seed for reproducability
+            random.Random(self._seed).shuffle(keys_list) # shuffle, but with a seed for reproducability
         split_idx = int(len(keys_list) * train_val_split)
         self._train_keys = keys_list[:split_idx]
         self._val_keys = keys_list[split_idx:]
         if verbose>0:
-            print(f"Creating dataset from {len(self._train_keys)} train and {len(self._val_keys)} val objects")
+            print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
 
+        # Make sure all val labels are also in train
+        train_labels_EW, train_labels_NS, val_labels_EW, val_labels_NS = [], [], [], []
+        for key in self._train_keys:
+            train_labels_EW += list(split_df[key]['EW'].unique())
+            train_labels_NS += list(split_df[key]['NS'].unique())
+        for key in self._val_keys:
+            val_labels_EW += list(split_df[key]['EW'].unique())
+            val_labels_NS += list(split_df[key]['NS'].unique())
+        if not (all(x in set(train_labels_EW) for x in set(val_labels_EW)) and all(x in set(train_labels_NS) for x in set(val_labels_NS))):
+            print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
+        
         # Run sin over Mean and True Anomaly, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
         for key in self._train_keys + self._val_keys:
             if ['Mean Anomaly (deg)'] in input_features:
@@ -145,17 +159,17 @@ class DatasetGenerator():
                 sub_df['NS_encoded'] = self._combined_label_encoder.transform(sub_df['NS'])
             self._label_features_encoded = [feature + '_encoded' for feature in label_features]
             if verbose > 0:
-                print(f"Creating datasets with labels {self._label_features}")
+                print(f"Labels: {self._label_features}")
         else:
             if verbose > 0:
-                print("Creating datasets without labels.")
+                print("No Labels")
 
         # create datasets using timewindows
         self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride)
         self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride) if self.val_keys else None
                     
         if verbose > 0:
-            print(f"Created datasets with seed {self.seed}")
+            print(f"=========================Finished Dataset=========================")
 
     def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride):
         n_rows = np.sum([len(split_df[key]) for key in keys])
@@ -196,7 +210,7 @@ class DatasetGenerator():
             datasets = [self._train_ds]
         datasets = [self.set_ds_outputs(ds, label_features, keep_identifier) for ds in datasets]
         if shuffle:
-            datasets = [ds.shuffle(ds.cardinality(), seed=self.seed) for ds in datasets]
+            datasets = [ds.shuffle(ds.cardinality(), seed=self._seed) for ds in datasets]
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]
