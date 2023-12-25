@@ -84,7 +84,8 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
 class DatasetGenerator():
     def __init__(self,
                  split_df,
-                 input_steps=10, # how many input timesteps we get
+                 input_history_steps=10, # how many history timesteps we get as input, including the current one
+                 input_future_steps=0, # how many future timesteps we get as input
                  input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
                  label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
                  stride=1, # distance between datapoints
@@ -150,26 +151,29 @@ class DatasetGenerator():
                 print("Creating datasets without labels.")
 
         # create datasets using timewindows
-        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_steps, stride)
-        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_steps, stride) if self.val_keys else None
+        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride)
+        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride) if self.val_keys else None
                     
         if verbose > 0:
             print(f"Created datasets with seed {self.seed}")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_steps, stride):
+    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride):
         n_rows = np.sum([len(split_df[key]) for key in keys])
-        inputs = np.zeros(shape=(n_rows, input_steps, len(input_features)))
+        inputs = np.zeros(shape=(n_rows, input_history_steps+input_future_steps, len(input_features)))
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
         for key in keys:
             # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
-            # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_steps)
-            extended_df = pd.concat([pd.DataFrame(np.nan, index=pd.RangeIndex(input_steps-1), columns=split_df[key].columns), split_df[key]]).reset_index(drop=True)
-            extended_df.bfill(inplace=True) # replace NaN values with first actual value
-            current_index = input_steps
-            while(current_index <= extended_df.shape[0]):
-                inputs[current_row] = extended_df[input_features][current_index-input_steps:current_index].to_numpy(dtype=np.float32)
+            # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
+            nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)
+            nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns)
+            extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
+            extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
+            extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
+            current_index = input_history_steps
+            while(current_index+input_future_steps <= extended_df.shape[0]):
+                inputs[current_row] = extended_df[input_features][current_index-input_history_steps:current_index+input_future_steps].to_numpy(dtype=np.float32)
                 if label_features:
                     labels[current_row] = extended_df[label_features][current_index-1:current_index] # -1 as input slice indexing excludes last index, need to slice for 1 element to prevent keyerror
                 element_identifiers[current_row] = extended_df[['ObjectID', 'TimeIndex']][current_index-1:current_index].to_numpy(dtype=np.int32) # see above
