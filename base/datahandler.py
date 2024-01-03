@@ -42,9 +42,11 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
             object_labels_EW['EW'] = object_labels_EW['Node'] + '-' + object_labels_EW['Type']
             object_labels_EW['EW_Node'] = object_labels_EW['Node']
             object_labels_EW['EW_Type'] = object_labels_EW['Type']
+            object_labels_EW['EW_Node_Location'] = True
             object_labels_NS['NS'] = object_labels_NS['Node'] + '-' + object_labels_NS['Type']
             object_labels_NS['NS_Node'] = object_labels_NS['Node']
             object_labels_NS['NS_Type'] = object_labels_NS['Type']
+            object_labels_NS['NS_Node_Location'] = True
             object_labels_EW.drop(['Node', 'Type', 'Direction'], axis=1, inplace=True)
             object_labels_NS.drop(['Node', 'Type', 'Direction'], axis=1, inplace=True)
 
@@ -62,9 +64,11 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
             object_df['EW'].ffill(inplace=True)
             object_df['EW_Node'].ffill(inplace=True)
             object_df['EW_Type'].ffill(inplace=True)
+            object_df['EW_Node_Location'].fillna(False, inplace=True)
             object_df['NS'].ffill(inplace=True)
             object_df['NS_Node'].ffill(inplace=True)
             object_df['NS_Type'].ffill(inplace=True)
+            object_df['NS_Node_Location'].fillna(False, inplace=True)
         else:
             object_df['EW'] = 'UNKNOWN'
             object_df['EW_Node'] = 'UNKNOWN'
@@ -144,6 +148,7 @@ class DatasetGenerator():
         # encode labels
         self._label_features_encoded = []
         if label_features:
+            features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
             possible_node_labels = ['SS', 'ES', 'ID', 'AD', 'IK']
             possible_type_labels = ['NK', 'CK', 'EK', 'HK']
             possible_combined_labels = [node_label + '-' + type_label for node_label in possible_node_labels for type_label in possible_type_labels]
@@ -157,9 +162,9 @@ class DatasetGenerator():
                 sub_df['NS_Type_encoded'] = self._type_label_encoder.transform(sub_df['NS_Type'])
                 sub_df['EW_encoded'] = self._combined_label_encoder.transform(sub_df['EW'])
                 sub_df['NS_encoded'] = self._combined_label_encoder.transform(sub_df['NS'])
-            self._label_features_encoded = [feature + '_encoded' for feature in label_features]
+            self._label_features_encoded = [ft + '_encoded' if ft in features_to_encode else ft for ft in label_features]
             if verbose > 0:
-                print(f"Labels: {self._label_features}")
+                print(f"Labels: {self._label_features_encoded}")
         else:
             if verbose > 0:
                 print("No Labels")
@@ -172,7 +177,7 @@ class DatasetGenerator():
             print(f"=========================Finished Dataset=========================")
 
     def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride):
-        n_rows = np.sum([len(split_df[key]) for key in keys])
+        n_rows = np.sum([len(split_df[key])-1 for key in keys]) # the last row (ES) is removed
         inputs = np.zeros(shape=(n_rows, input_history_steps+input_future_steps, len(input_features)))
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
@@ -222,9 +227,11 @@ class DatasetGenerator():
         # make sure we consider the fact that there may not be any labels
         if self._label_features:
             label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
+            features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
+            actual_features = [ft + '_encoded' if ft in features_to_encode else ft for ft in label_features]
             def output_mapper(x,y,z):
                 #outputs = [x] + [y[i] for i in label_feature_indices]
-                outputs = [x] + [{ft:y[ft + '_encoded'] for ft in label_features}]
+                outputs = [x] + [{ft:y[ft] for ft in actual_features}]
                 #outputs = [x] + [tf.gather(y, label_feature_indices, axis=0)]
                 if keep_identifier: outputs += [z]
                 return tuple(outputs)

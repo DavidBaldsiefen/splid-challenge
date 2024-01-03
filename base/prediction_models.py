@@ -186,10 +186,13 @@ class Dense_NN(Prediction_Model):
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes... not 20 for _Node and _Type
             n_units = 20
-            if '_Node' in out_feature:
+            if '_Location' in out_feature:
+                n_units = 2
+            elif '_Node' in out_feature:
                 n_units = 5
             elif '_Type' in out_feature:
                 n_units = 4
+            
             output = layers.Dense(units=n_units,
                                 activation="linear",
                                 kernel_regularizer=regularizers.l2(l2_reg),
