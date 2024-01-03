@@ -181,6 +181,9 @@ class DatasetGenerator():
         inputs = np.zeros(shape=(n_rows, input_history_steps+input_future_steps, len(input_features)))
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
+        fast_compute = stride==1 and input_history_steps == input_future_steps
+        if not fast_compute:
+            print("Warning: asymmetrical window size leads to slow computation during dataset creation")
         current_row = 0
         for key in keys:
             # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
@@ -190,14 +193,25 @@ class DatasetGenerator():
             extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
             extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
             extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
-            current_index = input_history_steps
-            while(current_index+input_future_steps <= extended_df.shape[0]):
-                inputs[current_row] = extended_df[input_features][current_index-input_history_steps:current_index+input_future_steps].to_numpy(dtype=np.float32)
+
+            # for stride 1 and symmetrical horizons we can use the faster np implementation
+            if fast_compute:
+                window_size = input_history_steps + input_future_steps
+                obj_len = len(split_df[key])-1
+                inputs[current_row:current_row+obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)
                 if label_features:
-                    labels[current_row] = extended_df[label_features][current_index-1:current_index] # -1 as input slice indexing excludes last index, need to slice for 1 element to prevent keyerror
-                element_identifiers[current_row] = extended_df[['ObjectID', 'TimeIndex']][current_index-1:current_index].to_numpy(dtype=np.int32) # see above
-                current_index += stride
-                current_row+=1
+                    labels[current_row:current_row+obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)
+                element_identifiers[current_row:current_row+obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)
+                current_row+=obj_len
+            else:
+                current_index = input_history_steps
+                while(current_index+input_future_steps <= extended_df.shape[0]):
+                    inputs[current_row] = extended_df[input_features][current_index-input_history_steps:current_index+input_future_steps].to_numpy(dtype=np.float32)
+                    if label_features:
+                        labels[current_row] = extended_df[label_features][current_index-1:current_index] # -1 as input slice indexing excludes last index, need to slice for 1 element to prevent keyerror
+                    element_identifiers[current_row] = extended_df[['ObjectID', 'TimeIndex']][current_index-1:current_index].to_numpy(dtype=np.int32) # see above
+                    current_index += stride
+                    current_row+=1
         if label_features:
             ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
                                     tf.data.Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)})),

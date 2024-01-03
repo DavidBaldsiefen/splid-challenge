@@ -209,10 +209,10 @@ class Dense_NN(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy', tf.keras.metrics.Recall(thresholds=0)])
 
 class CNN(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[64,64,64], l2_reg=0.0, lr_scheduler=[], seed=None):
+    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[[64,3],[64,3],[64,3]], l2_reg=0.0, lr_scheduler=[], seed=None):
         "Create a convolutional model, meant to predict a single output feature at one timestep"
         super().__init__(seed)
 
@@ -225,8 +225,8 @@ class CNN(Prediction_Model):
 
         if input_dropout > 0.0:
             x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
-        for layer_filters in conv_layers:
-            x = keras.layers.Conv1D(filters=layer_filters, kernel_size=3, padding="same")(x)
+        for filters_kernel in conv_layers:
+            x = keras.layers.Conv1D(filters=filters_kernel[0], kernel_size=filters_kernel[1], padding="same")(x)
             x = keras.layers.BatchNormalization()(x)
             x = keras.layers.ReLU()(x)
             if mixed_dropout > 0.0:
@@ -239,7 +239,9 @@ class CNN(Prediction_Model):
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes... not 20 for _Node and _Type
             n_units = 20
-            if '_Node' in out_feature:
+            if '_Location' in out_feature:
+                n_units = 2
+            elif '_Node' in out_feature:
                 n_units = 5
             elif '_Type' in out_feature:
                 n_units = 4

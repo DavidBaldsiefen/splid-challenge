@@ -203,7 +203,7 @@ def run_evaluator(participant_path=None, ground_truth_path=None, plot_object=Non
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
     print(f'F2: {f2:.2f}')
-    print(f'RMSE: {rmse:.2f}')
+    print(f'RMSE: {rmse:.4f}')
 
     # Plot the evaluation for the selected object (if any)
     if plot_object:
