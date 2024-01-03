@@ -81,7 +81,7 @@ class NodeDetectionEvaluator:
         f2 = (5 * total_tp) / (5 * total_tp + 4 * total_fn + total_fp)
         rmse = np.sqrt((sum(d ** 2 for d in total_distances) / len(total_distances))) if total_distances else 0
 
-        return precision, recall, f2, rmse
+        return precision, recall, f2, rmse, total_tp, total_fp, total_fn
 
 
     def plot(self, object_id):

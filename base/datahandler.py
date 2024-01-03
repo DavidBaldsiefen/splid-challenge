@@ -93,6 +93,7 @@ class DatasetGenerator():
                  input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
                  label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
                  stride=1, # distance between datapoints
+                 padding=True, # wether to use padding at the beginning and end of each df
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
@@ -119,6 +120,8 @@ class DatasetGenerator():
         self._val_keys = keys_list[split_idx:]
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
+            print(f"Padding: {padding}")
+            print(f"Scaling: {scale}")
 
         # Make sure all val labels are also in train
         train_labels_EW, train_labels_NS, val_labels_EW, val_labels_NS = [], [], [], []
@@ -170,14 +173,14 @@ class DatasetGenerator():
                 print("No Labels")
 
         # create datasets using timewindows
-        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride)
-        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride) if self.val_keys else None
+        self._train_ds = self.create_ds_from_dataframes(split_df, self._train_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride, padding)
+        self._val_ds = self.create_ds_from_dataframes(split_df, self.val_keys, self._input_features, self._label_features_encoded, input_history_steps, input_future_steps, stride, padding) if self.val_keys else None
                     
         if verbose > 0:
             print(f"=========================Finished Dataset=========================")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride):
-        n_rows = np.sum([len(split_df[key])-1 for key in keys]) # the last row (ES) is removed
+    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride, padding):
+        n_rows = np.sum([len(split_df[key]) - (1 if padding else (input_history_steps+input_future_steps-1)) for key in keys]) # the last row (ES) is removed
         inputs = np.zeros(shape=(n_rows, input_history_steps+input_future_steps, len(input_features)))
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
@@ -186,18 +189,20 @@ class DatasetGenerator():
             print("Warning: asymmetrical window size leads to slow computation during dataset creation")
         current_row = 0
         for key in keys:
-            # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
-            # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
-            nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)
-            nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns)
-            extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
-            extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
-            extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
+            extended_df = split_df[key].copy()
+            if padding:
+                # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
+                # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
+                nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)
+                nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns)
+                extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
+                extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
+                extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
 
             # for stride 1 and symmetrical horizons we can use the faster np implementation
             if fast_compute:
                 window_size = input_history_steps + input_future_steps
-                obj_len = len(split_df[key])-1
+                obj_len = len(split_df[key]) - (1 if padding else (input_history_steps+input_future_steps-1))
                 inputs[current_row:current_row+obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)
                 if label_features:
                     labels[current_row:current_row+obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)
