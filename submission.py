@@ -4,6 +4,7 @@ import tensorflow as tf
 from pathlib import Path
 from tqdm import tqdm
 import random
+import time
 
 from base import utils, datahandler
 
@@ -16,8 +17,13 @@ TEST_PREDS_FP = Path('/submission/submission.csv')
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
 print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DIR}\". Creating dataset")
 
-ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes, train_val_split=1.0, stride=1, input_steps=15)
-test_EW, test_NS = ds_gen.get_datasets(32, shuffle=False, with_identifiers=True)
+ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+                                      train_val_split=1.0,
+                                      stride=1,
+                                      input_steps=15,
+                                      input_history_steps=8,
+                                      input_future_steps=8)
+test_EW, test_NS = ds_gen.get_datasets(128, shuffle=False, with_identifiers=True)
 
 # Load models
 print(f"Loading Models \"{TRAINED_MODEL_EW_DIR}\" and \"{TRAINED_MODEL_NS_DIR}\"")
@@ -47,3 +53,5 @@ print(f"Finished predictions, saving to \"{TEST_PREDS_FP}\"")
 print(results.head(10))
 results.to_csv(TEST_PREDS_FP, index=False)
 print("Done.")
+time.sleep(360) # TEMPORARY FIX TO OVERCOME EVALAI BUG
+print("Finished sleeping")

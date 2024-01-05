@@ -248,10 +248,9 @@ class DatasetGenerator():
         if self._label_features:
             label_feature_indices = [self._label_feature_indices[feat] for feat in label_features]
             features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
-            actual_features = [ft + '_encoded' if ft in features_to_encode else ft for ft in label_features]
             def output_mapper(x,y,z):
                 #outputs = [x] + [y[i] for i in label_feature_indices]
-                outputs = [x] + [{ft:y[ft] for ft in actual_features}]
+                outputs = [x] + [{ft: (y[ft + '_encoded'] if ft in features_to_encode else y[ft]) for ft in label_features}]
                 #outputs = [x] + [tf.gather(y, label_feature_indices, axis=0)]
                 if keep_identifier: outputs += [z]
                 return tuple(outputs)
