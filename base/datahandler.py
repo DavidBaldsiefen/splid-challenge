@@ -1,7 +1,8 @@
 import pandas as pd
 import random
 import numpy as np
-import tensorflow as tf
+from tensorflow.data import Dataset
+from tensorflow.math import reduce_mean, reduce_std
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from pathlib import Path
 from tqdm import tqdm
@@ -202,7 +203,7 @@ class DatasetGenerator():
             # for stride 1 and symmetrical horizons we can use the faster np implementation
             if fast_compute:
                 window_size = input_history_steps + input_future_steps
-                obj_len = len(split_df[key]) - (1 if padding else (input_history_steps+input_future_steps-1))
+                obj_len = len(split_df[key]) - (1 if padding else (window_size-1))
                 inputs[current_row:current_row+obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)
                 if label_features:
                     labels[current_row:current_row+obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)
@@ -218,13 +219,13 @@ class DatasetGenerator():
                     current_index += stride
                     current_row+=1
         if label_features:
-            ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
-                                    tf.data.Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)})),
-                                    tf.data.Dataset.from_tensor_slices((element_identifiers))))
+            ds = Dataset.zip((Dataset.from_tensor_slices((inputs)),
+                            Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)})),
+                            Dataset.from_tensor_slices((element_identifiers))))
             return ds
         else:
-            ds = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices((inputs)),
-                                    tf.data.Dataset.from_tensor_slices((element_identifiers))))
+            ds = Dataset.zip((Dataset.from_tensor_slices((inputs)),
+                            Dataset.from_tensor_slices((element_identifiers))))
             return ds
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], keep_identifier=False, shuffle=True):
@@ -265,8 +266,8 @@ class DatasetGenerator():
     def get_dataset_statistics(self, train=True, labels=False):
         input_features = np.array([(ft.numpy() if not labels else lb.numpy()) for ft, lb in (self.train_ds if train else self.val_ds)])
         ds_shape = input_features.shape
-        mean = tf.reduce_mean(input_features, axis=[0,1]).numpy()
-        stddev = tf.math.reduce_std(input_features, axis=[0,1]).numpy()
+        mean = reduce_mean(input_features, axis=[0,1]).numpy()
+        stddev = reduce_std(input_features, axis=[0,1]).numpy()
         print(f"Dataset Shape: {ds_shape}\nMean Values: {mean} => {np.mean(mean)}\nStddev Values: {stddev} => {np.mean(stddev)}")
     
     @property

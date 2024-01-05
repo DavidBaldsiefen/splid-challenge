@@ -209,7 +209,7 @@ class Dense_NN(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy', tf.keras.metrics.Recall(thresholds=0)])
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class CNN(Prediction_Model):
     def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[[64,3],[64,3],[64,3]], l2_reg=0.0, lr_scheduler=[], seed=None):
