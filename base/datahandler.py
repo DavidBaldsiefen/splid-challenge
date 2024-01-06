@@ -123,6 +123,7 @@ class DatasetGenerator():
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {padding}")
             print(f"Scaling: {scale}")
+            print(f"Horizons: {input_history_steps}-{input_future_steps}")
 
         # Make sure all val labels are also in train
         train_labels_EW, train_labels_NS, val_labels_EW, val_labels_NS = [], [], [], []
@@ -150,15 +151,15 @@ class DatasetGenerator():
                 split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
 
         # encode labels
+        features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
+        possible_node_labels = ['SS', 'ES', 'ID', 'AD', 'IK']
+        possible_type_labels = ['NK', 'CK', 'EK', 'HK']
+        possible_combined_labels = [node_label + '-' + type_label for node_label in possible_node_labels for type_label in possible_type_labels]
+        self._node_label_encoder = LabelEncoder().fit(possible_node_labels)
+        self._type_label_encoder = LabelEncoder().fit(possible_type_labels)
+        self._combined_label_encoder = LabelEncoder().fit(possible_combined_labels)
         self._label_features_encoded = []
         if label_features:
-            features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
-            possible_node_labels = ['SS', 'ES', 'ID', 'AD', 'IK']
-            possible_type_labels = ['NK', 'CK', 'EK', 'HK']
-            possible_combined_labels = [node_label + '-' + type_label for node_label in possible_node_labels for type_label in possible_type_labels]
-            self._node_label_encoder = LabelEncoder().fit(possible_node_labels)
-            self._type_label_encoder = LabelEncoder().fit(possible_type_labels)
-            self._combined_label_encoder = LabelEncoder().fit(possible_combined_labels)
             for key, sub_df in split_df.items():
                 sub_df['EW_Node_encoded'] = self._node_label_encoder.transform(sub_df['EW_Node'])
                 sub_df['NS_Node_encoded'] = self._node_label_encoder.transform(sub_df['NS_Node'])
@@ -235,7 +236,7 @@ class DatasetGenerator():
             datasets = [self._train_ds]
         datasets = [self.set_ds_outputs(ds, label_features, keep_identifier) for ds in datasets]
         if shuffle:
-            datasets = [ds.shuffle(ds.cardinality(), seed=self._seed) for ds in datasets]
+            datasets = [ds.shuffle(100, seed=self._seed) for ds in datasets]
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]

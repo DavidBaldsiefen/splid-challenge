@@ -99,8 +99,9 @@ def convert_classifier_output(classifier_output):
     return final_df
 
 
-def smooth_predictions(pred_df, past_steps=5, fut_steps=5):
+def smooth_predictions(pred_df, past_steps=5, fut_steps=5, verbose=1):
     '''Run a sliding window over the Predicted_EW/Predicted_NS columns in the dataframe and make them smoother'''
+    # It's probably possible to do this with nps windowing function somehow..
     pred_df = pred_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     pred_df['Predicted_EW_smoothed'] = pred_df['Predicted_EW']
     pred_df['Predicted_EW_raw'] = pred_df['Predicted_EW']
@@ -110,7 +111,7 @@ def smooth_predictions(pred_df, past_steps=5, fut_steps=5):
     # could use df.rolling...
     object_ids = pred_df['ObjectID'].unique()
     obj_dfs = []
-    for obj_id in tqdm(object_ids, desc="Smoothing"):
+    for obj_id in tqdm(object_ids, desc="Smoothing", disable=(verbose==0)):
         obj_data = pred_df[pred_df['ObjectID'].eq(obj_id)].reset_index(drop=True)
         cur_row = past_steps
         while cur_row < len(obj_data)-fut_steps-1:
