@@ -340,31 +340,21 @@ class Anchored_Dense_NN(Prediction_Model):
         self.compile(optimizer=optimizer)
 
 class LSTM_NN(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, lstm_layers=[32,32], dense_layers=[], future_lstm_layers=[], future_dense_layers=[], l2_reg=0.0, lr_scheduler=[], seed=None):
+    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, lstm_layers=[32,32], dense_layers=[], l2_reg=0.0, lr_scheduler=[], seed=None):
         "Create a model with lstm and dense layers, meant to predict a single output feature at one timestep. Support future-knowledge inputs."
         super().__init__(seed)
         
-        # determine input shape(s) and setup input layer(s)
-        input_layers = []
-        if isinstance(ds.element_spec[0], tuple):
-            # multiple inputs
-            in_shape_hist = ds.element_spec[0][0].shape.as_list()
-            in_shape_hist = in_shape_hist[1:] if in_shape_hist[0] is None else in_shape_hist # remove batch dimension
-            
-            in_shape_fut = ds.element_spec[0][1].shape.as_list()
-            in_shape_fut = in_shape_fut[1:] if in_shape_fut[0] is None else in_shape_fut # remove batch dimension
-            history_inputs = layers.Input(shape=in_shape_hist, name="Inputs_History")
-            future_inputs = layers.Input(shape=in_shape_fut, name="Inputs_Future")
-            input_layers=[history_inputs, future_inputs]
-        else:
-            in_shape_hist = ds.element_spec[0].shape.as_list()
-            in_shape_hist = in_shape_hist[1:] if in_shape_hist[0] is None else in_shape_hist # remove batch dimension
-            input_layers = [layers.Input(shape=in_shape_hist, name="Inputs_History")]
+        # determine input shape
+        in_shape = ds.element_spec[0].shape.as_list()
+        in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
+
+        inputs = layers.Input(shape=in_shape, name='Input')
+        x = inputs
 
         # TODO: add convolutional layers
 
         ### HISTORY LSTM STACK ##########
-        x_h = input_layers[0]
+        x_h = x
         if input_dropout > 0.0:
             x_h = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x_h)
         for layer_id, layer_units in enumerate(lstm_layers):
@@ -382,31 +372,6 @@ class LSTM_NN(Prediction_Model):
 
         x = x_h
 
-        ### FUTURE LSTM + DENSE STACK ###
-        if len(input_layers) > 1:
-            x_f = input_layers[1]
-            if input_dropout > 0.0:
-                x_f = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x_f)
-            for layer_id, layer_units in enumerate(future_lstm_layers):
-                x_f = layers.LSTM(layer_units, 
-                              return_sequences=(layer_id!=(len(future_lstm_layers)-1)),
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              recurrent_initializer=self.createInitializer('orthogonal'),
-                              bias_initializer=self.createInitializer('zeros')
-                              )(x_f)
-                if mixed_dropout > 0.0:
-                    x_f = layers.Dropout(mixed_dropout)(x_f)
-            x_f = layers.Flatten()(x_f)
-            for units in future_dense_layers:
-                x_f = layers.Dense(units=units,
-                               activation="relu",
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(x_f)
-            x = layers.Concatenate()([x_h, x_f])
-        #################################
-
         # DENSE LAYERS
         for units in dense_layers:
             x = layers.Dense(units=units,
@@ -416,13 +381,26 @@ class LSTM_NN(Prediction_Model):
                                bias_initializer=self.createInitializer('zeros'))(x)
             
         # OUTPUT LAYER
-        output = layers.Dense(units=1,
-                               activation="linear",
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(x)
+        outputs = []
+        for out_idx, out_feature in enumerate(ds.element_spec[1]):
+            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
+            n_units = 20
+            if '_Location' in out_feature:
+                n_units = 2
+            elif '_Node' in out_feature:
+                n_units = 5
+            elif '_Type' in out_feature:
+                n_units = 4
+            
+            output = layers.Dense(units=n_units,
+                                activation="linear",
+                                kernel_regularizer=regularizers.l2(l2_reg),
+                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                bias_initializer=self.createInitializer('zeros'),
+                                name=out_feature)(x)
+            outputs.append(output)
         
-        self._model = keras.Model(inputs=input_layers, outputs=output)
+        self._model = keras.Model(inputs=inputs, outputs=outputs)
 
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:
@@ -431,7 +409,7 @@ class LSTM_NN(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        self.compile(optimizer=optimizer)
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 
 class AR_LSTM(Prediction_Model):

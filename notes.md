@@ -9,3 +9,4 @@
 - Try localizing nodes first, then classifying them. The latter could be autoregressive, as nodes depend on the previous nodes. However, the training should use the real past outputs maybe?
 - I definetely need to preprocess more values -> Longitude has weird value range, negative vals but also vals over 180?
 - idea: make ds gen always use fast compute, then just slice away unnecessary values! not ideal though, as it will cut away too much on one side
+- combine own localizer with heursitics classification
