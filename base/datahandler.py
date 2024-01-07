@@ -96,6 +96,7 @@ class DatasetGenerator():
                  stride=1, # distance between datapoints
                  input_stride=1, # distance between input steps
                  padding=True, # wether to use padding at the beginning and end of each df
+                 transform_features=True, # wether to apply sin to certain features
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
@@ -138,12 +139,12 @@ class DatasetGenerator():
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
         
         # Run sin over deg fields, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
-        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)']
+        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)'] if transform_features else []
         for key in self._train_keys + self._val_keys:
             for ft in features_to_transform:
                 if ft in input_features:
                     split_df[key][ft] = np.sin(np.deg2rad(split_df[key][ft]))
-        if verbose > 0:
+        if transform_features and verbose > 0:
             print(f"Sin-Transformed features: {[ft for ft in features_to_transform if ft in input_features]}")
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets

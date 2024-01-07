@@ -10,3 +10,4 @@
 - I definetely need to preprocess more values -> Longitude has weird value range, negative vals but also vals over 180?
 - idea: make ds gen always use fast compute, then just slice away unnecessary values! not ideal though, as it will cut away too much on one side
 - combine own localizer with heursitics classification
+- use class weight in localizer to penalize FN more than FP -> should improve recall
