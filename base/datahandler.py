@@ -137,12 +137,14 @@ class DatasetGenerator():
         if not (all(x in set(train_labels_EW) for x in set(val_labels_EW)) and all(x in set(train_labels_NS) for x in set(val_labels_NS))):
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
         
-        # Run sin over Mean and True Anomaly, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
+        # Run sin over deg fields, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
+        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)']
         for key in self._train_keys + self._val_keys:
-            if ['Mean Anomaly (deg)'] in input_features:
-                split_df[key]['Mean Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['Mean Anomaly (deg)']))
-            if ['True Anomaly (deg)'] in input_features:
-                split_df[key]['True Anomaly (sin)'] = np.sin(np.deg2rad(split_df[key]['True Anomaly (deg)']))
+            for ft in features_to_transform:
+                if ft in input_features:
+                    split_df[key][ft] = np.sin(np.deg2rad(split_df[key][ft]))
+        if verbose > 0:
+            print(f"Sin-Transformed features: {[ft for ft in features_to_transform if ft in input_features]}")
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
@@ -183,9 +185,10 @@ class DatasetGenerator():
             print(f"=========================Finished Dataset=========================")
 
     def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride, input_stride, padding):
-        n_rows = np.sum([len(split_df[key]) - (1 if padding else (input_history_steps+input_future_steps-1)) for key in keys]) # the last row (ES) is removed
-        n_rows = int(np.ceil(n_rows/stride)) # consider stride
         window_size = input_history_steps + input_future_steps
+        obj_lens = {key:len(split_df[key]) - (1 if padding else (window_size-1)) for key in keys} # the last row (ES) is removed
+        strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
+        n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
@@ -202,13 +205,13 @@ class DatasetGenerator():
                 extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
                 extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
             
-            obj_len = len(split_df[key]) - (1 if padding else (window_size-1))
-            inputs[current_row:current_row+obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
+            strided_obj_len = strided_obj_lens[key]
+            inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
-                labels[current_row:current_row+obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
-            element_identifiers[current_row:current_row+obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
-            current_row+=obj_len
-            
+                labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
+            element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
+            current_row+=strided_obj_len
+
         if label_features:
             ds = Dataset.zip((Dataset.from_tensor_slices((inputs)),
                             Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)})),
