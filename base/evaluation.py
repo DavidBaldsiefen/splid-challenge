@@ -210,6 +210,70 @@ def run_evaluator(participant_path=None, ground_truth_path=None, plot_object=Non
         evaluator.plot(object_id=plot_object)
     return precision, recall, f2, rmse
 
+def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', return_scores=False):
+    t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, keep_identifier=True)
+    ds = t_ds if train else v_ds
+
+    ground_truth_labels = pd.concat([split_dataframes[k] for k in ds_gen.train_keys + ds_gen.val_keys])[['ObjectID', 'TimeIndex', f'{direction}_Node', f'{direction}_Type']].rename(columns={f'{direction}_Node' : 'Node', f'{direction}_Type' : 'Type'})
+    ground_truth_labels['Direction'] = direction
+    ground_truth_labels = ground_truth_labels[(ground_truth_labels['Direction'] == direction)]
+
+    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
+    labels = np.concatenate([element[f'{direction}_Node_Location'] for element in ds.map(lambda x,y,z: y).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
+
+    # get predictions
+    preds = model.predict(inputs)
+    preds_argmax = np.argmax(preds, axis=1)
+
+    df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
+    df['Location'] = labels
+    df[f'Location_Pred'] = preds_argmax
+
+    # add initial node prediction
+    if with_initial_node:
+        for obj in ds_gen.train_keys if train else ds_gen.val_keys:
+            df = df.sort_index()
+            df.loc[-1] = [int(obj), 0, 1, 1] # objid, timeindex, location, location_pred
+            df.index = df.index + 1
+            df = df.sort_index()
+    
+    df_filtered = df.loc[(df['Location_Pred'] == 1)]
+    df_filtered = df_filtered.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+
+    # remove consecutives detections
+    # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
+    if remove_consecutives:
+        df_filtered['consecutive'] = (df_filtered['TimeIndex'] - df_filtered['TimeIndex'].shift(1) != 1).cumsum()
+        # Filter rows where any number of consecutive values follow each other
+        df_filtered=df_filtered.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+
+    # assign the real label to the locations
+    mergeDf = df_filtered.merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex'])
+
+    ground_truth_from_file = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    ground_truth_from_file = ground_truth_from_file[ground_truth_from_file['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
+    ground_truth_from_file = ground_truth_from_file[(ground_truth_from_file['Direction'] == direction)]
+
+    # remove initial nodes, as they can always be localized anyway
+    if not with_initial_node:
+        mergeDf = mergeDf.loc[(mergeDf['TimeIndex'] != 0)]
+        ground_truth_from_file = ground_truth_from_file.loc[(ground_truth_from_file['TimeIndex'] != 0)]
+
+    evaluator = NodeDetectionEvaluator(ground_truth_from_file, mergeDf)
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+
+    print(f'Precision: {precision:.2f}')
+    print(f'Recall: {recall:.2f}')
+    print(f'F2: {f2:.2f}')
+    print(f'RMSE: {rmse:.4}')
+    print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
+
+    if return_scores:
+        return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
+    else:
+        return df.loc[(df['Location'] == 1) | (df['Location_Pred'] == 1)].merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex']), evaluator, mergeDf
+
 if __name__ == "__main__":
     if 'ipykernel' in sys.modules:
         run_evaluator(plot_object=True)

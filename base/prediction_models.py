@@ -20,7 +20,7 @@ class Prediction_Model():
         assert(self._model is not None)
         return self._model.evaluate(ds, verbose=verbose)
     
-    def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, best_model_filepath='best_model.hdf5', target_metric='val_accuracy', callbacks=[], plot_hist=False, verbose=1):
+    def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, best_model_filepath='best_model.hdf5', target_metric='val_accuracy', callbacks=[], class_weight=None, plot_hist=False, verbose=1):
         assert(self._model is not None)
 
         callbacks=callbacks
@@ -42,7 +42,7 @@ class Prediction_Model():
         if verbose>0:
             print(f"Starting training. Optimizing \"{target_metric}\"")
 
-        self._hist = self._model.fit(train_ds, validation_data=val_ds, verbose=verbose, epochs=epochs, callbacks=callbacks)
+        self._hist = self._model.fit(train_ds, validation_data=val_ds, verbose=verbose, epochs=epochs, class_weight=class_weight, callbacks=callbacks)
 
         if save_best_only:
             self._model.load_weights(best_model_filepath)
@@ -200,7 +200,7 @@ class Dense_NN(Prediction_Model):
                                 bias_initializer=self.createInitializer('zeros'),
                                 name=out_feature)(x)
             outputs.append(output)
-        self._model = keras.Model(inputs=inputs, outputs=outputs)
+        self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:

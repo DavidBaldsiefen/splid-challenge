@@ -127,3 +127,30 @@ def smooth_predictions(pred_df, past_steps=5, fut_steps=5, verbose=1):
     obj_dfs['Predicted_EW'] = obj_dfs['Predicted_EW_smoothed']
     obj_dfs['Predicted_NS'] = obj_dfs['Predicted_NS_smoothed']
     return obj_dfs
+
+def smooth_locations(pred_df, past_steps=5, fut_steps=5, verbose=1):
+    '''Run a sliding window over the Predicted_EW/Predicted_NS columns in the dataframe and make them smoother'''
+    # It's probably possible to do this with nps windowing function somehow..
+    pred_df = pred_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    pred_df['Location_Pred_smoothed'] = pred_df['Location_Pred']
+    pred_df['Location_Pred_raw'] = pred_df['Location_Pred']
+    # move a window over data, set new value of cell to the most common label in the window
+    # could use df.rolling...
+    object_ids = pred_df['ObjectID'].unique()
+    obj_dfs = []
+    for obj_id in tqdm(object_ids, desc="Smoothing", disable=(verbose==0)):
+        obj_data = pred_df[pred_df['ObjectID'].eq(obj_id)].reset_index(drop=True)
+        cur_row = past_steps
+        while cur_row < len(obj_data)-fut_steps-1:
+            EW_preds = obj_data.loc[cur_row - past_steps:cur_row+fut_steps+1, 'Predicted_EW_raw'].to_list()
+            NS_preds = obj_data.loc[cur_row - past_steps:cur_row+fut_steps+1, 'Predicted_NS_raw'].to_list()
+            obj_data.loc[cur_row, 'Predicted_EW_smoothed'] = max(set(EW_preds), key=EW_preds.count)
+            obj_data.loc[cur_row, 'Predicted_NS_smoothed'] = max(set(NS_preds), key=NS_preds.count)
+            # if obj_id == 1 and cur_row > 1200 and cur_row < 1220:
+            #     print(cur_row, NS_preds, max(set(NS_preds), key=NS_preds.count), obj_data.loc[cur_row, 'Predicted_NS_smoothed'])
+            cur_row += 1
+        obj_dfs.append(obj_data)
+    obj_dfs = pd.concat(obj_dfs)
+    obj_dfs['Predicted_EW'] = obj_dfs['Predicted_EW_smoothed']
+    obj_dfs['Predicted_NS'] = obj_dfs['Predicted_NS_smoothed']
+    return obj_dfs

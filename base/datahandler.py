@@ -93,6 +93,7 @@ class DatasetGenerator():
                  input_future_steps=0, # how many future timesteps we get as input
                  input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
                  label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
+                 pad_location_labels=0,
                  stride=1, # distance between datapoints
                  input_stride=1, # distance between input steps
                  padding=True, # wether to use padding at the beginning and end of each df
@@ -139,6 +140,7 @@ class DatasetGenerator():
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
         
         # Run sin over deg fields, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
+        # TODO: this may also be necessary for longitude
         features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)'] if transform_features else []
         for key in self._train_keys + self._val_keys:
             for ft in features_to_transform:
@@ -153,6 +155,18 @@ class DatasetGenerator():
             scaler = StandardScaler().fit(concatenated_train_df[input_features].values)
             for key in self._train_keys + self._val_keys:
                 split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
+
+        # pad the location labels, making them "wider"
+        if pad_location_labels>0:
+            if verbose > 0:
+                print(f"Padding locations ({pad_location_labels})")
+            for key, sub_df in split_df.items():
+                timeindices = sub_df.loc[(sub_df['EW_Node_Location'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                for timeindex in timeindices:
+                    sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'EW_Node_Location'] = True
+                timeindices = sub_df.loc[(sub_df['NS_Node_Location'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                for timeindex in timeindices:
+                    sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'NS_Node_Location'] = True
 
         # encode labels
         features_to_encode = ['EW_Node', 'NS_Node', 'EW_Type', 'NS_Type', 'EW', 'NS']
