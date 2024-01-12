@@ -227,7 +227,7 @@ def run_evaluator(ground_truth_path=None, participant_path=None, plot_object=Non
     return precision, recall, f2, rmse
 
 def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', return_scores=False, verbose=2):
-    t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, keep_identifier=True)
+    t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, with_identifier=True, stride=1)
     ds = t_ds if train else v_ds
 
     ground_truth_labels = pd.concat([split_dataframes[k] for k in ds_gen.train_keys + ds_gen.val_keys])[['ObjectID', 'TimeIndex', f'{direction}_Node', f'{direction}_Type']].rename(columns={f'{direction}_Node' : 'Node', f'{direction}_Type' : 'Type'})
@@ -240,7 +240,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
 
     # get predictions
     preds = model.predict(inputs, verbose=verbose)
-    preds_argmax = np.argmax(preds, axis=1)
+    preds_argmax = (preds>=0.5).astype(int) # for binary preds
 
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
     df['Location'] = labels
@@ -263,12 +263,8 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
         df_filtered['consecutive'] = (df_filtered['TimeIndex'] - df_filtered['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
         df_filtered=df_filtered.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
-
     # assign the real label to the locations
     mergeDf = df_filtered.merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex'])
-
-    print(mergeDf.head(20))
-
     ground_truth_from_file = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     ground_truth_from_file = ground_truth_from_file[ground_truth_from_file['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
     ground_truth_from_file = ground_truth_from_file[(ground_truth_from_file['Direction'] == direction)]
@@ -277,7 +273,6 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     if not with_initial_node:
         mergeDf = mergeDf.loc[(mergeDf['TimeIndex'] != 0)]
         ground_truth_from_file = ground_truth_from_file.loc[(ground_truth_from_file['TimeIndex'] != 0)]
-
     evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=mergeDf)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
 

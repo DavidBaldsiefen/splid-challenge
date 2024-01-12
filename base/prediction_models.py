@@ -20,6 +20,10 @@ class Prediction_Model():
         assert(self._model is not None)
         return self._model.evaluate(ds, verbose=verbose)
     
+    def predict(self, ds, verbose=1):
+        assert(self._model is not None)
+        return self._model.predict(ds, verbose=verbose)
+    
     def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, best_model_filepath='best_model.hdf5', target_metric='val_accuracy', callbacks=[], class_weight=None, plot_hist=False, verbose=1):
         assert(self._model is not None)
 
@@ -183,18 +187,20 @@ class Dense_NN(Prediction_Model):
             if mixed_dropout > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
         outputs = []
+        binary_output = False
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes... not 20 for _Node and _Type
             n_units = 20
             if '_Location' in out_feature:
-                n_units = 2
+                n_units = 1
+                binary_output = True
             elif '_Node' in out_feature:
                 n_units = 5
             elif '_Type' in out_feature:
                 n_units = 4
             
             output = layers.Dense(units=n_units,
-                                activation="linear",
+                                activation='sigmoid' if binary_output else 'softmax',
                                 kernel_regularizer=regularizers.l2(l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros'),
@@ -208,8 +214,13 @@ class Dense_NN(Prediction_Model):
                 lr_scheduler = [0.001] + lr_scheduler # add learning rate
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
-
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=[ tf.keras.metrics.BinaryAccuracy()])
+        if binary_output:
+            self.compile(optimizer=optimizer, loss_fn=[tf.losses.BinaryCrossentropy()], metrics=[tf.keras.metrics.BinaryAccuracy(),
+                                                                                                tf.keras.metrics.Precision(),
+                                                                                                tf.keras.metrics.Recall()
+                                                                                                ])
+        else:
+            self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class CNN(Prediction_Model):
     def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[[64,3],[64,3],[64,3]], l2_reg=0.0, lr_scheduler=[], seed=None):
