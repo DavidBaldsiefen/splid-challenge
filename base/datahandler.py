@@ -96,12 +96,13 @@ class DatasetGenerator():
                  pad_location_labels=0,
                  stride=1, # distance between datapoints
                  input_stride=1, # distance between input steps
-                 padding=True, # wether to use padding at the beginning and end of each df
+                 padding='zero', # wether to use no/zero/same padding at the beginning and end of each df
                  transform_features=True, # wether to apply sin to certain features
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
                  scale=True,
+                 custom_scaler=None,
                  verbose=1):
 
         split_df = copy.deepcopy(split_df)
@@ -125,7 +126,7 @@ class DatasetGenerator():
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {padding}")
-            print(f"Scaling: {scale}")
+            print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''}")
             print(f"Horizons: {input_history_steps}-{input_future_steps} @ stride {input_stride}")
 
         # Make sure all val labels are also in train
@@ -152,14 +153,15 @@ class DatasetGenerator():
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
             concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
-            scaler = StandardScaler().fit(concatenated_train_df[input_features].values)
+            scaler = StandardScaler().fit(concatenated_train_df[input_features].values) if custom_scaler is None else custom_scaler
+            self._scaler = scaler
             for key in self._train_keys + self._val_keys:
                 split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
 
         # pad the location labels, making them "wider"
-        if pad_location_labels>0:
+        if pad_location_labels>0 and label_features:
             if verbose > 0:
-                print(f"Padding locations ({pad_location_labels})")
+                print(f"Padding node locations ({pad_location_labels})")
             for key, sub_df in split_df.items():
                 timeindices = sub_df.loc[(sub_df['EW_Node_Location'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
                 for timeindex in timeindices:
@@ -201,24 +203,30 @@ class DatasetGenerator():
 
     def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, input_history_steps, input_future_steps, stride, input_stride, padding):
         window_size = input_history_steps + input_future_steps
-        obj_lens = {key:len(split_df[key]) - (1 if padding else (window_size-1)) for key in keys} # the last row (ES) is removed
+        obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
+        keys.sort()
         for key in keys:
             extended_df = split_df[key].copy()
-
-            if padding:
+            if padding != 'none':
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
                 # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
                 nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)
                 nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns)
                 extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
-                extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
-                extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
+                if padding=='same':
+                    extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
+                    extended_df.ffill(inplace=True) # replace NaN values at the end with last actual value
+                elif padding=='zero':
+                    extended_df.fillna(0.0, inplace=True)
+                else:
+                    print(f"Warning: unknown padding method \"{padding}\"! Using zero-padding instead")
+                    extended_df.fillna(0.0, inplace=True)
             
             strided_obj_len = strided_obj_lens[key]
             inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
@@ -301,3 +309,7 @@ class DatasetGenerator():
     @property
     def val_keys(self):
         return self._val_keys
+    
+    @property
+    def scaler(self):
+        return self._scaler

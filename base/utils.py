@@ -1,6 +1,9 @@
 import pandas as pd
 from tqdm import tqdm
 from fastcore.basics import Path
+import random
+import numpy as np
+import tensorflow as tf
 
 # Function to prepare the data in a tabular format
 def tabularize_data(data_dir, feature_cols, ground_truth=None, lag_steps=1, fill_na=True):
@@ -142,15 +145,18 @@ def smooth_locations(pred_df, past_steps=5, fut_steps=5, verbose=1):
         obj_data = pred_df[pred_df['ObjectID'].eq(obj_id)].reset_index(drop=True)
         cur_row = past_steps
         while cur_row < len(obj_data)-fut_steps-1:
-            EW_preds = obj_data.loc[cur_row - past_steps:cur_row+fut_steps+1, 'Predicted_EW_raw'].to_list()
-            NS_preds = obj_data.loc[cur_row - past_steps:cur_row+fut_steps+1, 'Predicted_NS_raw'].to_list()
+            EW_preds = obj_data.loc[cur_row - past_steps:cur_row+fut_steps+1, 'Location_Pred'].to_list()
             obj_data.loc[cur_row, 'Predicted_EW_smoothed'] = max(set(EW_preds), key=EW_preds.count)
-            obj_data.loc[cur_row, 'Predicted_NS_smoothed'] = max(set(NS_preds), key=NS_preds.count)
             # if obj_id == 1 and cur_row > 1200 and cur_row < 1220:
             #     print(cur_row, NS_preds, max(set(NS_preds), key=NS_preds.count), obj_data.loc[cur_row, 'Predicted_NS_smoothed'])
             cur_row += 1
         obj_dfs.append(obj_data)
     obj_dfs = pd.concat(obj_dfs)
-    obj_dfs['Predicted_EW'] = obj_dfs['Predicted_EW_smoothed']
-    obj_dfs['Predicted_NS'] = obj_dfs['Predicted_NS_smoothed']
+    obj_dfs['Location_Pred'] = obj_dfs['Location_Pred_smoothed']
     return obj_dfs
+
+def set_random_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)

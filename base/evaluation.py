@@ -14,8 +14,10 @@ class NodeDetectionEvaluator:
         self.tolerance = tolerance
         
     def evaluate(self, object_id):
-        gt_object = self.ground_truth[self.ground_truth['ObjectID'] == object_id].copy()
-        p_object = self.participant[self.participant['ObjectID'] == object_id].copy()
+        gt_object = self.ground_truth[(self.ground_truth['ObjectID'] == object_id) & \
+                          (self.ground_truth['Direction'] != 'ES')].copy()
+        p_object = self.participant[(self.participant['ObjectID'] == object_id) & \
+                                    (self.participant['Direction'] != 'ES')].copy()
         p_object['matched'] = False
         p_object['classification'] = None
         p_object['distance'] = None
@@ -75,7 +77,8 @@ class NodeDetectionEvaluator:
                 p_object[p_object['classification'] == 'TP']['distance'].tolist()
             )
         if ((total_tp + total_fp) < 1):
-            print("Warning: about to throw div0 error, which is most likely because objects cannot be matched. Did you compare train results agaist val-ground_truth?")
+            print("Warning: No true AND false positives! Did you compare train results agaist val-ground_truth?")
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         precision = total_tp / (total_tp + total_fp)
         recall = total_tp / (total_tp + total_fn)
         f2 = (5 * total_tp) / (5 * total_tp + 4 * total_fn + total_fp)
@@ -95,7 +98,7 @@ class NodeDetectionEvaluator:
         participant_NS = p_object[p_object['Direction'] == 'NS']
         self._plot_type_timeline(ground_truth_EW, participant_EW, ax1, 'EW')
         self._plot_type_timeline(ground_truth_NS, participant_NS, ax2, 'NS')
-        plt.xlabel('Time Index')
+        plt.xlabel('TimeIndex')
         title_info = f"Object {object_id}: TPs={tp}, FPs={fp}, FNs={fn}"
         fig.suptitle(title_info, fontsize=10)
         plt.tight_layout(rect=[0, 0.08, 1, 0.96])
@@ -176,15 +179,22 @@ def merge_label_files(label_folder):
     return label_data
 
 
-def run_evaluator(participant_path=None, ground_truth_path=None, plot_object=None):
+def run_evaluator(ground_truth_path=None, participant_path=None, plot_object=None):
+
+    print('participant_path:', participant_path)
+    print('ground_truth_path:', ground_truth_path)
 
     if participant_path is None:
+        print('Reading participant_toy.csv')
         participant_df = pd.read_csv('participant_toy.csv')
     else:
         participant_path = Path(participant_path).expanduser()
+        
         if participant_path.is_dir():
+            print("a")
             participant_df = merge_label_files(participant_path)  
         else:
+            print("b", participant_path)
             participant_df = pd.read_csv(participant_path)
     
     if ground_truth_path is None:
@@ -192,25 +202,31 @@ def run_evaluator(participant_path=None, ground_truth_path=None, plot_object=Non
     else:
         ground_truth_path = Path(ground_truth_path).expanduser()
         if ground_truth_path.is_dir():
+            print('a')
             ground_truth_df = merge_label_files(ground_truth_path)
         else:
+            print('b', ground_truth_path)
             ground_truth_df = pd.read_csv(ground_truth_path)
     
+    print(participant_df.head(10))
+
+    print(ground_truth_df.head(10))
 
     # Create a NodeDetectionEvaluator instance
-    evaluator = NodeDetectionEvaluator(ground_truth_df, participant_df, tolerance=6)
-    precision, recall, f2, rmse = evaluator.score()
+    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=participant_df, tolerance=6)
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
     print(f'F2: {f2:.2f}')
     print(f'RMSE: {rmse:.4f}')
+    print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
     # Plot the evaluation for the selected object (if any)
     if plot_object:
         evaluator.plot(object_id=plot_object)
     return precision, recall, f2, rmse
 
-def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', return_scores=False):
+def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', return_scores=False, verbose=2):
     t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, keep_identifier=True)
     ds = t_ds if train else v_ds
 
@@ -223,7 +239,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
 
     # get predictions
-    preds = model.predict(inputs)
+    preds = model.predict(inputs, verbose=verbose)
     preds_argmax = np.argmax(preds, axis=1)
 
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
@@ -251,6 +267,8 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     # assign the real label to the locations
     mergeDf = df_filtered.merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex'])
 
+    print(mergeDf.head(20))
+
     ground_truth_from_file = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     ground_truth_from_file = ground_truth_from_file[ground_truth_from_file['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
     ground_truth_from_file = ground_truth_from_file[(ground_truth_from_file['Direction'] == direction)]
@@ -260,14 +278,15 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
         mergeDf = mergeDf.loc[(mergeDf['TimeIndex'] != 0)]
         ground_truth_from_file = ground_truth_from_file.loc[(ground_truth_from_file['TimeIndex'] != 0)]
 
-    evaluator = NodeDetectionEvaluator(ground_truth_from_file, mergeDf)
+    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=mergeDf)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
 
-    print(f'Precision: {precision:.2f}')
-    print(f'Recall: {recall:.2f}')
-    print(f'F2: {f2:.2f}')
-    print(f'RMSE: {rmse:.4}')
-    print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
+    if verbose>0:
+        print(f'Precision: {precision:.2f}')
+        print(f'Recall: {recall:.2f}')
+        print(f'F2: {f2:.2f}')
+        print(f'RMSE: {float(rmse):.4}')
+        print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
     if return_scores:
         return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
