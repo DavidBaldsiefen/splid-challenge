@@ -31,7 +31,8 @@ class NodeDetectionEvaluator:
             matching_participant_events = p_object[
                 (p_object['TimeIndex'] >= gt_row['TimeIndex'] - self.tolerance) &
                 (p_object['TimeIndex'] <= gt_row['TimeIndex'] + self.tolerance) &
-                (p_object['Direction'] == gt_row['Direction'])
+                (p_object['Direction'] == gt_row['Direction']) &
+                (p_object['matched'] == False)
             ]
 
             if len(matching_participant_events) > 0:
@@ -405,7 +406,7 @@ def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], trai
         df = df.loc[df['TimeIndex'] != 0]
 
     if only_initial_nodes:
-        if verbose > 0: print("Ignoring initial nodes")
+        if verbose > 0: print("Considering ONLY initial nodes")
         df = df.loc[df['TimeIndex'] == 0]
 
     if only_initial_nodes and (not with_initial_node):

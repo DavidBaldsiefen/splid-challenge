@@ -246,6 +246,12 @@ class DatasetGenerator():
             labels = labels[nodes]
             element_identifiers = element_identifiers[nodes]
 
+            # TEMPORARY
+            #print("Warning: temporary change to only use initial nodes in ds!")
+            initial_nodes = np.argwhere(element_identifiers[:,1] == 0)[:,0]
+            inputs = inputs[initial_nodes]
+            labels = labels[initial_nodes]
+            element_identifiers = element_identifiers[initial_nodes]
             
 
         datasets = [Dataset.from_tensor_slices((inputs))]
@@ -259,11 +265,15 @@ class DatasetGenerator():
         else:
             return datasets[0]
 
-    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], with_identifier=False, only_nodes=False, shuffle=True, stride=1):
+    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], 
+                     with_identifier=False, only_nodes=False, shuffle=True,
+                     train_keys=None, val_keys=None, stride=1):
         
         # create datasets
+        train_keys = self._train_keys if train_keys is None else train_keys
+        val_keys = self._val_keys if val_keys is None else val_keys
         train_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
-                                                keys=self._train_keys,
+                                                keys=train_keys,
                                                 input_features=self._input_features,
                                                 label_features=label_features,
                                                 only_nodes=only_nodes,
@@ -274,9 +284,9 @@ class DatasetGenerator():
                                                 input_stride=self._input_stride,
                                                 padding=self._padding)
         datasets = [train_ds]
-        if self._val_keys:
+        if val_keys:
             val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
-                                                    keys=self._val_keys,
+                                                    keys=val_keys,
                                                     input_features=self._input_features,
                                                     label_features=label_features,
                                                     only_nodes=only_nodes,

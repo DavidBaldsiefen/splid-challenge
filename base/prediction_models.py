@@ -64,12 +64,22 @@ class Prediction_Model():
         
         return self._hist
     
-    def plot_hist(self, hist, keys=None):
-        fig = plt.figure(figsize=(4, 3))
-        ax = fig.add_subplot(111)
-        for key in (hist.history.keys() if keys is None else keys):
-            ax.plot(hist.history[key][1:], label=key)
-        ax.legend()
+    def plot_hist(self, hist, custom_keys=None):
+        loss_keys = [k for k in hist.history.keys() if 'loss' in k]
+        acc_keys = [k for k in hist.history.keys() if 'accuracy' in k]
+        other_keys = custom_keys
+        fig, axes = plt.subplots(nrows=1, ncols=2 if not other_keys else 3, figsize=(6 if not other_keys else 9,3))
+        plt.tight_layout()
+        for key in loss_keys:
+            axes[0].plot(hist.history[key][1:], label=str(key))
+            axes[0].legend()
+        for key in acc_keys:
+            axes[1].plot(hist.history[key][1:], label=str(key))
+            axes[1].legend()
+        if other_keys:
+            for key in other_keys:
+                axes[2].plot(hist.history[key][1:], label=str(key))
+                axes[2].legend()
         fig.show()
 
     def summary(self):
