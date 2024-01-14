@@ -10,3 +10,10 @@
 - combine own localizer with heursitics classification
 - use class weight in localizer to penalize FN more than FP -> should improve recall (strong class imbalance)
 - Try a 2-step classifier: 1) classify only the ID/AD/IK nodes 2) identify the single propulsion type per direction per object
+- should probably really implement k fold crossval, at least for fast algorithms (like the classifier)
+
+
+### Challenge reverse-engineering:
+
+- number of objects: 64
+- total number of nodes: 64+17

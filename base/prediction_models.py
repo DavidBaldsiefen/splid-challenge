@@ -190,12 +190,12 @@ class Dense_NN(Prediction_Model):
         binary_output = False
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes... not 20 for _Node and _Type
-            n_units = 20
+            n_units = 16
             if '_Location' in out_feature:
                 n_units = 1
                 binary_output = True
             elif '_Node' in out_feature:
-                n_units = 5
+                n_units = 4
             elif '_Type' in out_feature:
                 n_units = 4
             
@@ -395,11 +395,11 @@ class LSTM_NN(Prediction_Model):
         outputs = []
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes... not 20 for _Node and _Type
-            n_units = 20
+            n_units = 16
             if '_Location' in out_feature:
                 n_units = 2
             elif '_Node' in out_feature:
-                n_units = 5
+                n_units = 4
             elif '_Type' in out_feature:
                 n_units = 4
             

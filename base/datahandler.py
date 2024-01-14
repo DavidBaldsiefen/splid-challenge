@@ -196,13 +196,14 @@ class DatasetGenerator():
         if verbose > 0:
             print(f"=========================Finished Generator=======================")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, with_identifier, input_history_steps, input_future_steps, stride, input_stride, padding):
+    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, only_nodes, with_identifier, input_history_steps, input_future_steps, stride, input_stride, padding):
         window_size = input_history_steps + input_future_steps
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
+        node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
         keys.sort()
@@ -227,8 +228,25 @@ class DatasetGenerator():
             inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
                 labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
+            if only_nodes:
+                node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
             current_row+=strided_obj_len
+
+        # if wanted, only preserve items with nodes
+        if only_nodes:
+            # identify which direction we want
+            ew_nodes = np.argwhere(node_location_markers[:,0] == 1)[:,0]
+            ns_nodes = np.argwhere(node_location_markers[:,1] == 1)[:,0]
+            with_ew = any('EW' in ft for ft in label_features)
+            with_ns = any('NS' in ft for ft in label_features)
+            nodes = [] + ([ew_nodes] if with_ew else []) + ([ns_nodes] if with_ns else [])
+            nodes = np.sort(np.unique(np.concatenate(nodes)))
+            inputs = inputs[nodes]
+            labels = labels[nodes]
+            element_identifiers = element_identifiers[nodes]
+
+            
 
         datasets = [Dataset.from_tensor_slices((inputs))]
         if label_features:
@@ -241,32 +259,35 @@ class DatasetGenerator():
         else:
             return datasets[0]
 
-    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], with_identifier=False, shuffle=True, stride=None):
+    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], with_identifier=False, only_nodes=False, shuffle=True, stride=1):
         
         # create datasets
         train_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                 keys=self._train_keys,
                                                 input_features=self._input_features,
                                                 label_features=label_features,
+                                                only_nodes=only_nodes,
                                                 with_identifier=with_identifier,
                                                 input_history_steps=self._input_history_steps,
                                                 input_future_steps=self._input_future_steps,
                                                 stride=stride,
                                                 input_stride=self._input_stride,
                                                 padding=self._padding)
-        val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
-                                                keys=self._val_keys,
-                                                input_features=self._input_features,
-                                                label_features=label_features,
-                                                with_identifier=with_identifier,
-                                                input_history_steps=self._input_history_steps,
-                                                input_future_steps=self._input_future_steps,
-                                                stride=self.stride,
-                                                input_stride=self._input_stride,
-                                                padding=self._padding)
-
-        datasets = [train_ds, val_ds] if self._val_keys else [train_ds]
-
+        datasets = [train_ds]
+        if self._val_keys:
+            val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
+                                                    keys=self._val_keys,
+                                                    input_features=self._input_features,
+                                                    label_features=label_features,
+                                                    only_nodes=only_nodes,
+                                                    with_identifier=with_identifier,
+                                                    input_history_steps=self._input_history_steps,
+                                                    input_future_steps=self._input_future_steps,
+                                                    stride=stride,
+                                                    input_stride=self._input_stride,
+                                                    padding=self._padding)
+            datasets.append(val_ds)
+            
         if shuffle:
             datasets = [ds.shuffle(100, seed=self._seed) for ds in datasets]
         if batch_size is not None:

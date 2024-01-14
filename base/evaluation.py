@@ -288,6 +288,140 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     else:
         return df.loc[(df['Location'] == 1) | (df['Location_Pred'] == 1)].merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex']), evaluator, mergeDf
 
+def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], train=True, with_initial_node=True, only_initial_nodes=False, return_scores=False, majority_segment_labels=True, verbose=2):
+
+    t_ds, v_ds = ds_gen.get_datasets(batch_size=256,
+                                     label_features=model_outputs,
+                                     shuffle=False,
+                                     only_nodes=not majority_segment_labels, # if we dont use the majority method, its enough to just evaluate on nodes
+                                     with_identifier=True,
+                                     stride=1)
+    ds = t_ds if train else v_ds
+
+    ground_truth_df = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    ground_truth_df = ground_truth_df[ground_truth_df['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
+
+    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
+    #labels = np.concatenate([element['EW_Node_Location'] for element in ds.map(lambda x,y,z: y).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
+
+    df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
+
+    # get predictions
+    preds = model.predict(inputs, verbose=verbose)
+
+    # Ordering of model_outputs MUST MATCH with actual outputs!
+    for output_idx, output_name in enumerate(model_outputs):
+        preds_argmax = np.argmax(preds[output_idx] if len(model_outputs) > 1 else preds, axis=1)
+        df[f'{output_name}_Pred'] = preds_argmax
+        if output_name == 'EW_Node' or output_name == 'NS_Node':
+            df[f'{output_name}'] = ds_gen.node_label_encoder.inverse_transform(df[f'{output_name}_Pred'])
+        if output_name == 'EW_Type' or output_name == 'NS_Type':
+            df[f'{output_name}'] = ds_gen.type_label_encoder.inverse_transform(df[f'{output_name}_Pred'])
+        if output_name == 'EW' or output_name == 'NS':
+            df[f'{output_name}'] = ds_gen.combined_label_encoder.inverse_transform(df[f'{output_name}_Pred'])
+            df[[f'{output_name}_Node', f'{output_name}_Type']] = df[f'{output_name}'].str.split('-', expand=True)
+
+    objs = df['ObjectID'].unique()
+    # add initial nodes
+    if with_initial_node and(np.min(identifiers[:,1] > 0)) and majority_segment_labels:
+        # TODO: this may fuck shit up? not sure
+        for obj in objs:
+            new_index = df.index.max()+1
+            df.loc[new_index] = df.loc[0].copy() # copy  a random row
+            df.at[new_index, 'ObjectID'] = obj
+            df.at[new_index, 'TimeIndex'] = 0
+            df.at[new_index, 'Loc_EW'] = 0
+            df.at[new_index, 'Loc_NS'] = 0
+    df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True) # do not remove! index ordering is important
+
+    # assign locations with the majority label in the following segment
+    if ('NS_Type' in model_outputs or 'EW_Type' in model_outputs) and majority_segment_labels:
+        for obj in objs:
+            for dir in ['EW', 'NS']:
+                vals = df[f'{dir}_Type_Pred'].to_numpy()
+
+                obj_indices = df.index[(df['ObjectID'] == obj)].to_list()
+                loc_indices = df.index[(df['ObjectID'] == obj) & (df[f'Loc_{dir}'] == 1)].to_list() # df indices where loc=1
+                 
+                # determine segments, determine majority value
+                loc_indices = [np.min(obj_indices)] + loc_indices + [np.max(obj_indices)]
+                loc_indices = np.unique(loc_indices, axis=0) # it may happen that index 0 exists twice; in that case remove duplicate
+                loc_indices.sort()
+                locs = df.iloc[loc_indices]['TimeIndex'].to_list() # actual timeindex
+                
+                segments = np.split(vals, loc_indices)
+                most_common_values = [np.bincount(segment).argmax() for segment in segments[1:-1]]
+                #print(locs, loc_indices, most_common_values)
+                # assign majority value of segment _after_ a loc to the loc
+                majority_vals_decoded = ds_gen.type_label_encoder.inverse_transform(most_common_values)
+                for idx, major_val in enumerate(majority_vals_decoded):
+                    df.at[loc_indices[idx], f'{dir}_Type'] = major_val
+    
+    # now, assign the real label to the locations
+    if not ('EW_Node' in model_outputs or 'EW_Type' in model_outputs or 'EW' in model_outputs):
+        if verbose > 0: print("Considering only NS direction")
+        ground_truth_df = ground_truth_df[(ground_truth_df['Direction'] == 'NS')]
+    if not ('NS_Node' in model_outputs or 'NS_Type' in model_outputs or 'NS' in model_outputs):
+        if verbose > 0: print("Considering only EW direction")
+        ground_truth_df = ground_truth_df[(ground_truth_df['Direction'] == 'EW')]
+    gt_columns_to_keep = ['ObjectID', 'TimeIndex', 'Direction'] # available: direction, node, type
+    if not ('NS_Node' in model_outputs or 'EW_Node' in model_outputs or 'EW' in model_outputs or 'NS' in model_outputs):
+        if verbose > 0: print("Assuming perfect nodes")
+        gt_columns_to_keep += ['Node']
+    if not ('NS_Type' in model_outputs or 'EW_Type' in model_outputs or 'EW' in model_outputs or 'NS' in model_outputs):
+        gt_columns_to_keep += ['Type']
+        if verbose > 0: print("Assuming perfect types")
+    df = df.merge(ground_truth_df[gt_columns_to_keep], how='right', on = ['ObjectID', 'TimeIndex'])
+
+    if not 'Type' in df.columns.values.tolist():
+        df['Type'] = pd.NA
+    if not 'Node' in df.columns.values.tolist():
+        df['Node'] = pd.NA
+    if 'EW_Node' in df.columns.values.tolist():
+        df.loc[df['Direction'] == 'EW', 'Node'] = df.loc[df['Direction'] == 'EW', 'EW_Node']
+    if 'EW_Type' in df.columns.values.tolist():
+        df.loc[df['Direction'] == 'EW', 'Type'] = df.loc[df['Direction'] == 'EW', 'EW_Type']
+    if 'NS_Node' in df.columns.values.tolist():
+        df.loc[df['Direction'] == 'NS', 'Node'] = df.loc[df['Direction'] == 'NS', 'NS_Node']
+    if 'NS_Type' in df.columns.values.tolist():
+        df.loc[df['Direction'] == 'NS', 'Type'] = df.loc[df['Direction'] == 'NS', 'NS_Type']
+
+    # Lets add our background knowledge:
+    # 1) For timeindex 0, the node is always SS
+    df.loc[df['TimeIndex'] == 0, 'Node'] = 'SS'
+    # 2) AD, ID is always combined with NK
+    df.loc[(df['Node'] == 'AD') | (df['Node'] == 'ID'), 'Type'] = 'NK'
+    # 3) IK is always combined with HK/CK/EK
+    df.loc[(df['Node'] == 'IK') & (df['Type'] == 'NK'), 'Type'] = 'CK' # CK is most common
+
+    # remove ES rows
+    df = df.replace('na', pd.NA)
+    df.dropna(inplace=True)
+
+    # remove initial nodes
+    if not with_initial_node:
+        if verbose > 0: print("Ignoring initial nodes")
+        df = df.loc[df['TimeIndex'] != 0]
+
+    if only_initial_nodes:
+        if verbose > 0: print("Ignoring initial nodes")
+        df = df.loc[df['TimeIndex'] == 0]
+
+    if only_initial_nodes and (not with_initial_node):
+        print("Warning: No detections, as only_initial_node=True and with_initial_node=False!")
+
+    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=df)
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    if verbose > 0:
+        print(f'Precision: {precision:.2f}')
+        print(f'TP: {total_tp} FP: {total_fp}')
+
+    if return_scores:
+        return {'Precision':precision, 'TP':total_tp, 'FP':total_fp}
+    else:
+        return df, ground_truth_df, evaluator
+
 if __name__ == "__main__":
     if 'ipykernel' in sys.modules:
         run_evaluator(plot_object=True)
