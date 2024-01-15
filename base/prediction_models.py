@@ -65,8 +65,9 @@ class Prediction_Model():
         return self._hist
     
     def plot_hist(self, hist, custom_keys=None):
-        loss_keys = [k for k in hist.history.keys() if 'loss' in k]
-        acc_keys = [k for k in hist.history.keys() if 'accuracy' in k]
+        hist_keys = list(hist.history.keys())
+        loss_keys = [k for k in hist_keys if 'loss' in k]
+        acc_keys = [k for k in hist_keys if 'accuracy' in k]
         other_keys = custom_keys
         fig, axes = plt.subplots(nrows=1, ncols=2 if not other_keys else 3, figsize=(6 if not other_keys else 9,3))
         plt.tight_layout()
