@@ -2,7 +2,6 @@ import pandas as pd
 import random
 import numpy as np
 from tensorflow.data import Dataset
-from tensorflow.math import reduce_mean, reduce_std
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from pathlib import Path
 from tqdm import tqdm
@@ -10,7 +9,6 @@ import copy
 
 
 def load_and_prepare_dataframes(data_dir, labels_dir):
-
     # Load the labels
     if labels_dir is None:
         print("loading data without labels")

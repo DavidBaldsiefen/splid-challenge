@@ -6,7 +6,6 @@ from sklearn.metrics import mean_squared_error
 import argparse
 from fastcore.all import *
 
-
 class NodeDetectionEvaluator:
     def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False):
         self.ground_truth = ground_truth.copy()
@@ -233,9 +232,12 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, with_identifier=True, stride=1)
     ds = t_ds if train else v_ds
 
-    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
-    labels = np.concatenate([element[f'{direction}_Node_Location'] for element in ds.map(lambda x,y,z: y).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
+    def get_x(x,y,z): return x # with lambdas, there is an annoying warning otherwise
+    def get_y(x,y,z): return y
+    def get_z(x,y,z): return z
+    inputs = np.concatenate([element for element in ds.map(get_x).as_numpy_iterator()])
+    labels = np.concatenate([element[f'{direction}_Node_Location'] for element in ds.map(get_y).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(get_z).as_numpy_iterator()])
 
     # get predictions
     preds = model.predict(inputs, verbose=verbose)
@@ -245,6 +247,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
     df['Location'] = labels
     df[f'Location_Pred'] = preds_argmax
+    df[f'Location_Pred_Raw'] = preds
 
     # add initial node prediction
     if with_initial_node:
@@ -253,21 +256,21 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
             df.loc[-1] = [int(obj), 0, 1, 1] # objid, timeindex, location, location_pred
             df.index = df.index + 1
             df = df.sort_index()
-    
-    df = df.loc[(df['Location_Pred'] == 1)]
-    df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
     # set direction as well as dummy values for node and type
     df['Direction'] = direction
     df['Node'] = 'None'
     df['Type'] = 'None'
+    
+    df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    df_filtered = df.loc[(df['Location_Pred'] == 1)]
 
     # remove consecutives detections
     # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
     if remove_consecutives:
-        df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
+        df_filtered['consecutive'] = (df_filtered['TimeIndex'] - df_filtered['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
-        df=df.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+        df_filtered=df_filtered.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
 
     ground_truth_from_file = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     ground_truth_from_file = ground_truth_from_file[ground_truth_from_file['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
@@ -275,9 +278,9 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
 
     # remove initial nodes, as they can always be localized anyway
     if not with_initial_node:
-        df = df.loc[(df['TimeIndex'] != 0)]
+        df_filtered = df_filtered.loc[(df_filtered['TimeIndex'] != 0)]
         ground_truth_from_file = ground_truth_from_file.loc[(ground_truth_from_file['TimeIndex'] != 0)]
-    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=df, ignore_classes=True)
+    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=df_filtered, ignore_classes=True)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
 
     if verbose>0:
