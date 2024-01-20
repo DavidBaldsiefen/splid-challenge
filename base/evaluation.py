@@ -8,10 +8,12 @@ from fastcore.all import *
 
 
 class NodeDetectionEvaluator:
-    def __init__(self, ground_truth, participant, tolerance=6):
+    def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False):
         self.ground_truth = ground_truth.copy()
         self.participant = participant.copy()
         self.tolerance = tolerance
+        self.ignore_classes=ignore_classes
+        if ignore_classes: print("Evaluator ignoring classifications")
         
     def evaluate(self, object_id):
         gt_object = self.ground_truth[(self.ground_truth['ObjectID'] == object_id) & \
@@ -39,7 +41,7 @@ class NodeDetectionEvaluator:
                 p_idx = matching_participant_events.index[0]
                 p_row = matching_participant_events.iloc[0]
                 distance = p_row['TimeIndex'] - gt_row['TimeIndex']
-                if p_row['Node'] == gt_row['Node'] and p_row['Type'] == gt_row['Type']:
+                if self.ignore_classes or (p_row['Node'] == gt_row['Node'] and p_row['Type'] == gt_row['Type']):
                     tp += 1
                     gt_object.loc[gt_idx, 'classification'] = 'TP'
                     gt_object.loc[gt_idx, 'distance'] = distance
@@ -227,13 +229,9 @@ def run_evaluator(ground_truth_path=None, participant_path=None, plot_object=Non
         evaluator.plot(object_id=plot_object)
     return precision, recall, f2, rmse
 
-def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', return_scores=False, verbose=2):
+def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, with_initial_node=False, remove_consecutives=True, direction='EW', prediction_threshold=0.5, return_scores=False, verbose=2):
     t_ds, v_ds = ds_gen.get_datasets(256, label_features=[f'{direction}_Node_Location'], shuffle=False, with_identifier=True, stride=1)
     ds = t_ds if train else v_ds
-
-    ground_truth_labels = pd.concat([split_dataframes[k] for k in ds_gen.train_keys + ds_gen.val_keys])[['ObjectID', 'TimeIndex', f'{direction}_Node', f'{direction}_Type']].rename(columns={f'{direction}_Node' : 'Node', f'{direction}_Type' : 'Type'})
-    ground_truth_labels['Direction'] = direction
-    ground_truth_labels = ground_truth_labels[(ground_truth_labels['Direction'] == direction)]
 
     inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
     labels = np.concatenate([element[f'{direction}_Node_Location'] for element in ds.map(lambda x,y,z: y).as_numpy_iterator()])
@@ -241,7 +239,8 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
 
     # get predictions
     preds = model.predict(inputs, verbose=verbose)
-    preds_argmax = (preds>=0.5).astype(int) # for binary preds
+    #preds_argmax = np.argmax(preds, axis=1) # for legacy (non-binary) classification
+    preds_argmax = (preds>=prediction_threshold).astype(int) # for binary preds
 
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
     df['Location'] = labels
@@ -255,26 +254,30 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
             df.index = df.index + 1
             df = df.sort_index()
     
-    df_filtered = df.loc[(df['Location_Pred'] == 1)]
-    df_filtered = df_filtered.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    df = df.loc[(df['Location_Pred'] == 1)]
+    df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+
+    # set direction as well as dummy values for node and type
+    df['Direction'] = direction
+    df['Node'] = 'None'
+    df['Type'] = 'None'
 
     # remove consecutives detections
     # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
     if remove_consecutives:
-        df_filtered['consecutive'] = (df_filtered['TimeIndex'] - df_filtered['TimeIndex'].shift(1) != 1).cumsum()
+        df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
-        df_filtered=df_filtered.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
-    # assign the real label to the locations
-    mergeDf = df_filtered.merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex'])
+        df=df.groupby('consecutive').apply(lambda df: df.iloc[int(len(df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+
     ground_truth_from_file = pd.read_csv(gt_path).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     ground_truth_from_file = ground_truth_from_file[ground_truth_from_file['ObjectID'].isin(map(int, ds_gen.train_keys if train else ds_gen.val_keys))].copy()
     ground_truth_from_file = ground_truth_from_file[(ground_truth_from_file['Direction'] == direction)]
 
     # remove initial nodes, as they can always be localized anyway
     if not with_initial_node:
-        mergeDf = mergeDf.loc[(mergeDf['TimeIndex'] != 0)]
+        df = df.loc[(df['TimeIndex'] != 0)]
         ground_truth_from_file = ground_truth_from_file.loc[(ground_truth_from_file['TimeIndex'] != 0)]
-    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=mergeDf)
+    evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_from_file, participant=df, ignore_classes=True)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
 
     if verbose>0:
@@ -287,7 +290,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     if return_scores:
         return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
     else:
-        return df.loc[(df['Location'] == 1) | (df['Location_Pred'] == 1)].merge(ground_truth_labels, how='left', on = ['ObjectID', 'TimeIndex']), evaluator, mergeDf
+        return evaluator, df
 
 def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], train=True, with_initial_node=True, only_initial_nodes=False, return_scores=False, majority_segment_labels=True, verbose=2):
 

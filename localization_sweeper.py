@@ -41,7 +41,7 @@ def parameter_sweep(config=None):
                                                 input_history_steps=config.ds_gen['input_history_steps'], 
                                                 input_future_steps=config.ds_gen['input_future_steps'], 
                                                 seed=69)
-        
+        print('Input Features: ', ew_input_features if direction=='EW' else ns_input_features)
         print('Trn-keys:', ds_gen.train_keys)
         print('Val-keys:', ds_gen.val_keys)
         

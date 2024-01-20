@@ -94,6 +94,7 @@ class DatasetGenerator():
                  input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
                  with_labels=True,
                  pad_location_labels=0,
+                 nonbinary_padding=[],
                  input_stride=1, # distance between input steps
                  padding='zero', # wether to use no/zero/same padding at the beginning and end of each df
                  transform_features=True, # wether to apply sin to certain features
@@ -172,6 +173,23 @@ class DatasetGenerator():
                 for timeindex in timeindices:
                     sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'NS_Node_Location'] = True
 
+        if nonbinary_padding:
+            pad_extended  = nonbinary_padding[::-1] + nonbinary_padding[1:]
+            pad_len = len(nonbinary_padding)-1
+            if verbose > 0:
+                print(f"Padding node locations in non-binary fashion ({pad_extended})")
+            for key, sub_df in split_df.items():
+                sub_df['EW_Node_Location_nb'] = sub_df['EW_Node_Location'].astype(np.float32)
+                sub_df['NS_Node_Location_nb'] = sub_df['NS_Node_Location'].astype(np.float32)
+                timeindices = sub_df.loc[(sub_df['EW_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                for timeindex in timeindices:
+                    #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
+                    sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'] = pad_extended
+                    #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
+                timeindices = sub_df.loc[(sub_df['NS_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                for timeindex in timeindices:
+                    sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'NS_Node_Location_nb'] = pad_extended
+
         # encode labels
         possible_node_labels = ['SS', 'ID', 'AD', 'IK']
         possible_type_labels = ['NK', 'CK', 'EK', 'HK']
@@ -202,7 +220,7 @@ class DatasetGenerator():
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
-        labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32)
+        labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not 'EW_Node_Location_nb' in label_features else np.float32)
         node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
@@ -227,7 +245,10 @@ class DatasetGenerator():
             strided_obj_len = strided_obj_lens[key]
             inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
-                labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
+                new_dt = np.int32
+                if 'EW_Node_Location_nb' in label_features:
+                    new_dt = np.float32
+                labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)[::stride]
             if only_nodes:
                 node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
