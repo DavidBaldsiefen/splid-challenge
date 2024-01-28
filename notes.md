@@ -15,5 +15,5 @@
 
 ### Challenge reverse-engineering:
 
-- number of objects: 64
-- total number of nodes: 64+17
+- number of objects: 162
+- total number of nodes: (162*2)+396=720

@@ -6,8 +6,11 @@
 # Dataset & Files
 dataset/
 predictions/
-submission/
-trained_models/
+submission/dataset
+submission/models
+submission/base
+submission/submission
+models/
 
 # User-specific files
 *.rsuser
