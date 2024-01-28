@@ -297,7 +297,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
 
 def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], train=True, with_initial_node=True, only_initial_nodes=False, return_scores=False, majority_segment_labels=True, verbose=2):
 
-    t_ds, v_ds = ds_gen.get_datasets(batch_size=256,
+    t_ds, v_ds = ds_gen.get_datasets(batch_size=512,
                                      label_features=model_outputs,
                                      shuffle=False,
                                      only_nodes=not majority_segment_labels, # if we dont use the majority method, its enough to just evaluate on nodes
@@ -330,6 +330,16 @@ def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], trai
             df[[f'{output_name}_Node', f'{output_name}_Type']] = df[f'{output_name}'].str.split('-', expand=True)
 
     objs = df['ObjectID'].unique()
+
+    # merge locs into df
+    ground_truth_df['Loc_EW'] = 0
+    ground_truth_df['Loc_NS'] = 0
+    ground_truth_df.loc[ground_truth_df['Direction'] == 'EW', ['Loc_EW']] = 1
+    ground_truth_df.loc[ground_truth_df['Direction'] == 'NS', ['Loc_NS']] = 1
+    df = df.merge(ground_truth_df[['ObjectID', 'TimeIndex', 'Loc_EW', 'Loc_NS']], how='left', on=['ObjectID', 'TimeIndex'])
+    for obj in objs:
+        node_indices = ground_truth_df.index[(ground_truth_df['ObjectID'] == obj)].to_list()
+
     # add initial nodes
     if with_initial_node and(np.min(identifiers[:,1] > 0)) and majority_segment_labels:
         # TODO: this may fuck shit up? not sure
@@ -416,7 +426,7 @@ def evaluate_classifier(ds_gen, gt_path, model, model_outputs=['EW', 'NS'], trai
         df = df.loc[df['TimeIndex'] == 0]
 
     if only_initial_nodes and (not with_initial_node):
-        print("Warning: No detections, as only_initial_node=True and with_initial_node=False!")
+        print("Warning: No detections, as only_initial_node=True and with_ initial_node=False!")
 
     evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=df)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
