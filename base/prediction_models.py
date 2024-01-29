@@ -297,7 +297,7 @@ class Dense_NN_regression(Prediction_Model):
                 lr_scheduler = [0.001] + lr_scheduler # add learning rate
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.MeanSquaredError()], metrics=['mse', 'mae'])
+        self.compile(optimizer=optimizer, loss_fn=[tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))], metrics=['mse', 'mae'])
 
 
 class CNN(Prediction_Model):
