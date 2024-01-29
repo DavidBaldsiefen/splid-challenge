@@ -1,17 +1,19 @@
 import numpy as np
 import pandas as pd
 
-def create_prediction_df(ds_gen, model, train=False, model_outputs=['EW_Type', 'NS_Type'], verbose=1):
-    t_ds, v_ds = ds_gen.get_datasets(batch_size=512,
-                                     label_features=model_outputs,
+# TODO: implement framework for non-majority method, i.e. normal predictor
+
+def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'], verbose=1):
+    datasets = ds_gen.get_datasets(batch_size=512,
+                                     label_features=model_outputs if not test else [],
                                      shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                      with_identifier=True,
                                      stride=1)
-    ds = t_ds if train else v_ds
+    ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
-    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
+    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()]) if not test else np.concatenate([element for element in ds.map(lambda x,y: x).as_numpy_iterator()])
     #labels = np.concatenate([element['EW_Node_Location'] for element in ds.map(lambda x,y,z: y).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])  if not test else np.concatenate([element for element in ds.map(lambda x,y: y).as_numpy_iterator()])
 
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
@@ -38,6 +40,7 @@ def create_prediction_df(ds_gen, model, train=False, model_outputs=['EW_Type', '
 def apply_majority_method(preds_df, location_df):
     """Take the locations from location_df, segment the preds_df, assign majority value for type and node
     Assumes preds_df to have columns [OjectID, TimeIndex, EW_Type, NS_Type]
+    Assumes location_df to have columns [OjectID, TimeIndex, Direction]
     """
 
     # merge locs into preds

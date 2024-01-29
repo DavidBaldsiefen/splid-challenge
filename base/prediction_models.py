@@ -99,6 +99,9 @@ class Prediction_Model():
             return keras.initializers.Orthogonal(seed=layer_seed)
         else:
             print(f"Warning: unknown initializer \"{initializer}\"")
+
+    def load_model(self, path):
+        self._model = tf.keras.models.load_model(path)
     
     @property
     def model(self):
