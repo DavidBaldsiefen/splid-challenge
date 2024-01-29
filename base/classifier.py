@@ -43,37 +43,42 @@ def apply_majority_method(preds_df, location_df):
     Assumes location_df to have columns [OjectID, TimeIndex, Direction]
     """
 
-    # merge locs into preds
-    location_df = location_df.copy()
-    location_df['Loc_EW'] = 0
-    location_df['Loc_NS'] = 0
-    location_df.loc[location_df['Direction'] == 'EW', ['Loc_EW']] = 1
-    location_df.loc[location_df['Direction'] == 'NS', ['Loc_NS']] = 1
-    location_df = location_df[['ObjectID', 'TimeIndex', 'Loc_EW', 'Loc_NS']]
-    #location_df = location_df.groupby(['ObjectID', 'TimeIndex']).agg({'Loc_EW': 'max', 'Loc_NS': 'max'}).reset_index()
+    dfs = []
 
-    # merge rows
-    df = preds_df.merge(location_df[['ObjectID', 'TimeIndex', 'Loc_EW', 'Loc_NS']], how='left', on=['ObjectID', 'TimeIndex'])
+    for dir in ['EW', 'NS']:
+
+        # merge locs into preds
+        df = location_df.copy()
+        df[f'{dir}_Loc'] = False
+        df.loc[df['Direction'] == dir, [f'{dir}_Loc']] = True
+        df = df[['ObjectID', 'TimeIndex', f'{dir}_Loc']]
+        df = preds_df.merge(df[['ObjectID', 'TimeIndex', f'{dir}_Loc']], how='left', on=['ObjectID', 'TimeIndex'])
+        object_ids = df['ObjectID'].unique()
     
+        # re-add initial rows in case they got removed
+        if len(df.loc[df['TimeIndex'] == 0]) == 0:
+            print("adding initial nodes manually")
+            initial_node_df = pd.DataFrame(columns=df.columns)
+            initial_node_df['ObjectID'] = object_ids
+            initial_node_df['TimeIndex'] = 0
+            initial_node_df[f'{dir}_Loc'] = True
+            initial_node_df[f'{dir}_Type'] = 'NA'
+            df = pd.concat([df, initial_node_df])
 
-    # sort the dataframe - this is important for the next step
-    df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+        # sort the dataframe - this is important for the next step
+        df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
-    object_ids = df['ObjectID'].unique()
-
-    for object_id in object_ids:
-        for dir in ['EW', 'NS']:
-            vals = df[f'{dir}_Type'].to_numpy() # TODO: this contains some data leakage, as points where the other direction has nodes will be counted double
+        for object_id in object_ids:
+            vals = df[f'{dir}_Type'].to_numpy()
 
             obj_indices = df.index[(df['ObjectID'] == object_id)].to_list()
-            loc_indices = df.index[(df['ObjectID'] == object_id) & (df[f'Loc_{dir}'] == 1)].to_list() # df indices where loc=1
+            loc_indices = df.index[(df['ObjectID'] == object_id) & (df[f'{dir}_Loc'] == True)].to_list() # df indices where loc=1
                 
             # determine segments, determine majority value
             loc_indices = loc_indices + [np.max(obj_indices)]
             loc_indices = np.unique(loc_indices, axis=0) # it may happen that index 0 exists twice; in that case remove duplicates
             loc_indices.sort()
-            #locs = df.iloc[loc_indices]['TimeIndex'].to_list() # actual timeindex
-
+            locs = df.iloc[loc_indices]['TimeIndex'].to_list() # actual timeindex
             
             segments = np.split(vals, loc_indices)[1:-1] # remove the segments of length 1 at the start and end
             segment_types = []
@@ -98,15 +103,16 @@ def apply_majority_method(preds_df, location_df):
                     elif prev_type == 'NK' and any(next_type == nd for nd in ['CK', 'EK', 'HK']): node = 'IK'
                     else: node = 'ID'
                     df.at[loc_indices[idx], f'{dir}_Node'] = node
-                
 
-    df = df.loc[(df['Loc_EW'] == 1) | (df['Loc_NS'] == 1)]
+        # create submission-style df
+        df = df.loc[df[f'{dir}_Loc'] == True]
+        df.loc[df[f'{dir}_Loc'] == True, 'Direction'] = dir
+        df['Node'] = df[f'{dir}_Node']
+        df['Type'] = df[f'{dir}_Type']
 
-    # turn this into a submission-style df
-    for dir in ['EW', 'NS']:
-        df.loc[df[f'Loc_{dir}'] == 1, 'Direction'] = dir
-        df.loc[(df[f'Loc_{dir}'] == 1) & (df['Direction'] == dir), 'Node'] = df.loc[(df[f'Loc_{dir}'] == 1) & (df['Direction'] == dir), f'{dir}_Node']
-        df.loc[(df[f'Loc_{dir}'] == 1) & (df['Direction'] == dir), 'Type'] = df.loc[(df[f'Loc_{dir}'] == 1) & (df['Direction'] == dir), f'{dir}_Type']
+        dfs.append(df)
 
+    # concatenate both directions
+    df = pd.concat(dfs)
     df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     return df

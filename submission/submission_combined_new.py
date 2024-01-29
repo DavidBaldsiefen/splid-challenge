@@ -7,7 +7,7 @@ import pickle
 import time
 import sys
 
-from base import utils, datahandler, classifier, localizer
+from base import utils, datahandler, classifier, localizer, evaluation
 
 DEBUG_MODE = True
 
@@ -88,12 +88,11 @@ ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 
+# Combine locations
 df_locs = pd.concat([ew_subm_df, ns_subm_df]).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
 print(f"#EW_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'EW')])}")
 print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
-
-print(df_locs.head(5))
 
 # ============================================================================================
 # Classification
@@ -137,4 +136,13 @@ if not DEBUG_MODE:
     time.sleep(360) # TEMPORARY FIX TO OVERCOME EVALAI BUG
     print("Finished sleeping")
 else:
+    print("Evaluating...")
+    ground_truth_df = pd.read_csv(Path('dataset/test_labels.csv'))
+    evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    print(f'Precision: {precision:.2f}')
+    print(f'Recall: {recall:.2f}')
+    print(f'F2: {f2:.2f}')
+    print(f'RMSE: {float(rmse):.4}')
+    print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
     print("Done.")
