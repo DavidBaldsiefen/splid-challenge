@@ -7,9 +7,9 @@ import pickle
 import time
 import sys
 
-from base import utils, datahandler, classifier
+from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     print("Warnin: Running in debug-mode, disable before submitting!")
@@ -27,7 +27,6 @@ TEST_PREDS_FP = Path('submission/submission.csv') if DEBUG_MODE else Path('/subm
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
 print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DIR}\". Creating dataset")
 
-
 # ============================================================================================
 # EW-Localization
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
@@ -42,15 +41,22 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_future_steps=12,
                                       custom_scaler=ew_localizer_scaler,
                                       seed=69)
-test_ds = ds_gen.get_datasets(128, label_features=[], shuffle=False, with_identifier=True, stride=1)
-
-inputs = np.concatenate([element for element in test_ds.map(lambda x,z: x).as_numpy_iterator()])
-identifiers_ew = np.concatenate([element for element in test_ds.map(lambda x,z: z).as_numpy_iterator()])
 
 print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\"")
 ew_localizer = tf.keras.models.load_model(LOCALIZER_EW_DIR)
-preds_ew = ew_localizer.predict(inputs, verbose=2)
-preds_ew_argmax = (preds_ew>=50.0).astype(int)
+
+ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
+                                model=ew_localizer,
+                                train=False,
+                                test=True,
+                                output_dirs=['EW'],
+                                verbose=2)
+
+ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
+                                            dirs=['EW'],
+                                            threshold=50.0,
+                                            add_initial_node=True,
+                                            clean_consecutives=True)
 
 # NS-Localization
 ns_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'RAAN (deg)', 'Inclination (deg)', 'Latitude (deg)']
@@ -65,58 +71,28 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_future_steps=12,
                                       custom_scaler=ew_localizer_scaler,
                                       seed=69)
-test_ds = ds_gen.get_datasets(128, label_features=[], shuffle=False, with_identifier=True, stride=1)
-
-inputs = np.concatenate([element for element in test_ds.map(lambda x,z: x).as_numpy_iterator()])
-identifiers_ns = np.concatenate([element for element in test_ds.map(lambda x,z: z).as_numpy_iterator()])
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\"")
 ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR)
-preds_ns = ns_localizer.predict(inputs, verbose=2)
-preds_ns_argmax = (preds_ns>=50.0).astype(int)
 
-# Localization cleanup
-df_ew = pd.DataFrame(np.concatenate([identifiers_ew.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
-df_ew[f'Location_EW'] = preds_ew_argmax
-df_ns = pd.DataFrame(np.concatenate([identifiers_ns.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
-df_ns[f'Location_NS'] = preds_ns_argmax # for binary preds
+ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
+                                model=ew_localizer,
+                                train=False,
+                                test=True,
+                                output_dirs=['NS'],
+                                verbose=2)
 
-# clean consecutive detections
-df_ew = df_ew.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-df_ew = df_ew.loc[(df_ew['Location_EW']==1)]
-df_ew['consecutive'] = (df_ew['TimeIndex'] - df_ew['TimeIndex'].shift(1) != 1).cumsum()
-df_ew=df_ew.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
+                                            dirs=['NS'],
+                                            threshold=50.0,
+                                            add_initial_node=True,
+                                            clean_consecutives=True)
 
-df_ns = df_ns.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-df_ns = df_ns.loc[(df_ns['Location_NS']==1)]
-df_ns['consecutive'] = (df_ns['TimeIndex'] - df_ns['TimeIndex'].shift(1) != 1).cumsum()
-df_ns=df_ns.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+df_locs = pd.concat([ew_subm_df, ns_subm_df]).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
-df = df_ew.merge(df_ns, how='outer', on = ['ObjectID', 'TimeIndex']).fillna(0).astype(np.int32)
+print(f"#EW_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'EW')])}")
+print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
 
-# add initial node prediction for each object
-object_ids = list(map(int, list(split_dataframes.keys())))
-for obj_id in object_ids:
-    df = df.sort_index()
-    df.loc[-1] = [int(obj_id), 0, 1, 1] # objid, timeindex, Location_EW, Location_NS
-    df.index = df.index + 1
-    df = df.sort_index()
-
-df_locs = df.loc[(df['Location_EW'] == 1) | (df['Location_NS'] == 1)]
-
-print(f"ObjectIDs ({len(object_ids)}): {object_ids}")
-print(f"#EW_Preds: {len(df.loc[(df['Location_EW'] == 1)])}")
-print(f"#NS_Preds: {len(df.loc[(df['Location_NS'] == 1)])}")
-
-sub_dfs = []
-for dir in ['EW', 'NS']:
-    sub_df = df_locs.copy()
-    sub_df = sub_df.loc[(sub_df[f'Location_{dir}'] == 1)]
-    sub_df['Direction'] = dir
-    sub_df = sub_df.drop([f'Location_{dir}'], axis='columns')
-    sub_dfs.append(sub_df)
-df_locs = pd.concat(sub_dfs)
-df_locs = df_locs.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 print(df_locs.head(5))
 
 # ============================================================================================
@@ -160,3 +136,5 @@ if not DEBUG_MODE:
     print("Done. Sleeping for 6 minutes.")
     time.sleep(360) # TEMPORARY FIX TO OVERCOME EVALAI BUG
     print("Finished sleeping")
+else:
+    print("Done.")

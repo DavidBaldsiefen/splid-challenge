@@ -46,6 +46,7 @@ COPY submission/models/ss_type_classifier_scaler.pkl /models/ss_type_classifier_
 COPY base/datahandler.py base/datahandler.py
 COPY base/utils.py base/utils.py
 COPY base/classifier.py base/classifier.py
+COPY base/localizer.py base/localizer.py
 #ADD base/ ./base
 COPY submission/submission_combined_new.py ./submission.py
 
