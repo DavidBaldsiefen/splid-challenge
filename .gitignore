@@ -7,7 +7,6 @@
 dataset/
 predictions/
 submission/dataset
-submission/models
 submission/base
 submission/submission
 models/

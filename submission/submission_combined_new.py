@@ -9,7 +9,7 @@ import sys
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
@@ -109,10 +109,10 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=input_features_reduced_further,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=1, #!
+                                      input_stride=2, #!
                                       padding='none',
                                       input_history_steps=1,
-                                      input_future_steps=64,
+                                      input_future_steps=124,
                                       custom_scaler=classifier_scaler,
                                       seed=69)
 classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR)
