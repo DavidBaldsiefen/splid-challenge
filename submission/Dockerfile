@@ -36,17 +36,15 @@ COPY submission/models/ew_localizer.hdf5 /models/ew_localizer.hdf5
 COPY submission/models/EW_localizer_scaler.pkl /models/EW_localizer_scaler.pkl
 COPY submission/models/ns_localizer.hdf5 /models/ns_localizer.hdf5
 COPY submission/models/NS_localizer_scaler.pkl /models/NS_localizer_scaler.pkl
-COPY submission/models/ew_ns_classifier_new.hdf5 /models/ew_ns_classifier_new.hdf5
-COPY submission/models/ew_ns_type_classifier.hdf5 /models/ew_ns_type_classifier.hdf5
-COPY submission/models/ss_type_classifier.hdf5 /models/ss_type_classifier.hdf5
 
-COPY submission/models/ew_ns_classifier_scaler_new.pkl /models/ew_ns_classifier_scaler_new.pkl
-COPY submission/models/type_classifier_scaler.pkl /models/type_classifier_scaler.pkl
-COPY submission/models/ss_type_classifier_scaler.pkl /models/ss_type_classifier_scaler.pkl
+COPY submission/models/ew_ns_classifier_oneshot.hdf5 /models/ew_ns_classifier_oneshot.hdf5
+COPY submission/models/ew_ns_classifier_scaler_oneshot.pkl /models/ew_ns_classifier_scaler_oneshot.pkl
+
 COPY base/datahandler.py base/datahandler.py
 COPY base/utils.py base/utils.py
 COPY base/classifier.py base/classifier.py
 COPY base/localizer.py base/localizer.py
+COPY base/evaluation.py base/evaluation.py
 #ADD base/ ./base
 COPY submission/submission_combined_new.py ./submission.py
 

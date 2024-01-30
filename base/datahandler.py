@@ -267,10 +267,10 @@ class DatasetGenerator():
 
             # TEMPORARY
             #print("Warning: temporary change to only use initial nodes in ds!")
-            initial_nodes = np.argwhere(element_identifiers[:,1] == 0)[:,0]
-            inputs = inputs[initial_nodes]
-            labels = labels[initial_nodes]
-            element_identifiers = element_identifiers[initial_nodes]
+            # initial_nodes = np.argwhere(element_identifiers[:,1] == 0)[:,0]
+            # inputs = inputs[initial_nodes]
+            # labels = labels[initial_nodes]
+            # element_identifiers = element_identifiers[initial_nodes]
             
 
         datasets = [Dataset.from_tensor_slices((inputs))]
