@@ -4,12 +4,15 @@ import pandas as pd
 # TODO: implement framework for non-majority method, i.e. normal predictor
 
 def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'], object_limit=None, only_nodes=False, verbose=1):
+    
+    train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
+    val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
     datasets = ds_gen.get_datasets(batch_size=512,
                                      label_features=[] if test else ['EW_Type', 'NS_Type'],
                                      shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                      with_identifier=True,
-                                     train_keys=ds_gen.train_keys if object_limit is None else ds_gen.train_keys[:object_limit],
-                                     val_keys=ds_gen.val_keys if object_limit is None else ds_gen.val_keys[:object_limit],
+                                     train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
+                                     val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
                                      only_nodes=only_nodes,
                                      stride=1)
     ds = (datasets[0] if train else datasets[1]) if not test else datasets

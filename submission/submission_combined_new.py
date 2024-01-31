@@ -31,7 +31,7 @@ TEST_PREDS_FP = Path('submission/submission.csv') if DEBUG_MODE else Path('/subm
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
 print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DIR}\". Creating dataset")
 
-# ============================================================================================
+# =================================LOCALIZATION==========================================
 # EW-Localization
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
 ew_localizer_scaler = pickle.load(open(SCALER_EW_DIR, 'rb'))
@@ -91,16 +91,14 @@ ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             threshold=75.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
-print(ns_subm_df.loc[ns_subm_df['TimeIndex']!=0].head(10))
-
 # Combine locations
 df_locs = pd.concat([ew_subm_df, ns_subm_df]).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
 print(f"#EW_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'EW')])}")
 print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
 
-# ============================================================================================
-# Classification
+# =================================CLASSIFICATION==========================================
+
 classifier_scaler = pickle.load(open(SCALER_CLASSIFIER_DIR, 'rb'))
 input_features_reduced_further = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
@@ -108,10 +106,10 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=input_features_reduced_further,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=2, #!
-                                      padding='none',
+                                      input_stride=2,
+                                      padding='zero',
                                       input_history_steps=1,
-                                      input_future_steps=124,
+                                      input_future_steps=128,
                                       custom_scaler=classifier_scaler,
                                       seed=69)
 print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
@@ -130,9 +128,9 @@ majority_df = classifier.apply_one_shot_method(preds_df=pred_df, location_df=df_
 
 # =====================================================================================================
 
-# TEMPORARY: Remove NS detections, because they probably add way more FP than TP
+# Use this to (temporarily!) remove certain parts
 df_reduced = majority_df.loc[(majority_df['TimeIndex'] == 0) | (majority_df['Direction'] == 'EW') | (majority_df['Direction'] == 'NS')]
-# Only EW: 0.56 0.57 0.57?
+
 # Save final results
 results = df_reduced
 print(f"Finished predictions, saving to \"{TEST_PREDS_FP}\"")

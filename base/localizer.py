@@ -5,12 +5,14 @@ def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['E
     if test and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
 
+    train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
+    val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
     datasets = ds_gen.get_datasets(batch_size=512,
                                      label_features=[],
                                      shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                      with_identifier=True,
-                                     train_keys=ds_gen.train_keys if object_limit is None else ds_gen.train_keys[:(object_limit if train else 1)],
-                                     val_keys=ds_gen.val_keys if object_limit is None else ds_gen.val_keys[:(object_limit if not train else 1)],
+                                     train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
+                                     val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
                                      stride=1)
     ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
@@ -79,8 +81,6 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
     # Filter objects
     ground_truth_df = ground_truth_df.loc[ground_truth_df['ObjectID'].isin(object_ids)]
     subm_df = subm_df.loc[subm_df['ObjectID'].isin(object_ids)]
-
-    print(ground_truth_df.loc[ground_truth_df['ObjectID']==225])
 
     # Filter direction
     ground_truth_df = ground_truth_df.loc[(ground_truth_df['Direction'].isin(dirs + ['ES']))] # Keep es row, to maintain object for evaluation

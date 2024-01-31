@@ -32,13 +32,13 @@ WORKDIR /app
 #ADD dataset/test/* /dataset/test/
 
 # COPY WHATEVER OTHER SCRIPTS YOU MAY NEED
-COPY submission/models/ew_localizer_best.hdf5 /models/ew_localizer.hdf5
-COPY submission/models/EW_localizer_scaler_best.pkl /models/EW_localizer_scaler.pkl
+COPY submission/models/ew_localizer_cnn.hdf5 /models/ew_localizer.hdf5
+COPY submission/models/EW_localizer_scaler_cnn.pkl /models/EW_localizer_scaler.pkl
 COPY submission/models/ns_localizer_cnn.hdf5 /models/ns_localizer.hdf5
 COPY submission/models/NS_localizer_scaler_cnn.pkl /models/NS_localizer_scaler.pkl
 
-COPY submission/models/ew_ns_classifier_oneshot.hdf5 /models/ew_ns_classifier_oneshot.hdf5
-COPY submission/models/ew_ns_classifier_scaler_oneshot.pkl /models/ew_ns_classifier_scaler_oneshot.pkl
+COPY submission/models/ew_ns_classifier_oneshot_cnn.hdf5 /models/ew_ns_classifier_oneshot.hdf5
+COPY submission/models/ew_ns_classifier_scaler_oneshot_cnn.pkl /models/ew_ns_classifier_scaler_oneshot.pkl
 
 COPY base/datahandler.py base/datahandler.py
 COPY base/utils.py base/utils.py
