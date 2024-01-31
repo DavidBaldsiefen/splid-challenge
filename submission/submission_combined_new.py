@@ -9,7 +9,7 @@ import sys
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -100,8 +100,6 @@ print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
 
 # ============================================================================================
 # Classification
-print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
-
 classifier_scaler = pickle.load(open(SCALER_CLASSIFIER_DIR, 'rb'))
 input_features_reduced_further = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
@@ -115,6 +113,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_future_steps=124,
                                       custom_scaler=classifier_scaler,
                                       seed=69)
+print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
 classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR)
 
 pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
