@@ -1,12 +1,16 @@
 import numpy as np
 import pandas as pd
 
-def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['EW', 'NS'], verbose=1):
+def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['EW', 'NS'], object_limit=None, verbose=1):
+    if test and object_limit is not None:
+        print("Warning: Object limit applied on test set - intentional?")
 
     datasets = ds_gen.get_datasets(batch_size=512,
                                      label_features=[],
                                      shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                      with_identifier=True,
+                                     train_keys=ds_gen.train_keys if object_limit is None else ds_gen.train_keys[:(object_limit if train else 1)],
+                                     val_keys=ds_gen.val_keys if object_limit is None else ds_gen.val_keys[:(object_limit if not train else 1)],
                                      stride=1)
     ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
@@ -73,7 +77,6 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
     ground_truth_df = pd.read_csv(gt_path)
 
     # Filter objects
-    print(225 in object_ids)
     ground_truth_df = ground_truth_df.loc[ground_truth_df['ObjectID'].isin(object_ids)]
     subm_df = subm_df.loc[subm_df['ObjectID'].isin(object_ids)]
 

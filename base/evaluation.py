@@ -69,8 +69,6 @@ class NodeDetectionEvaluator:
         total_fn = 0
         total_distances = []
         for object_id in self.ground_truth['ObjectID'].unique():
-            if object_id==225:
-                print("asdfasdfasdfasdfasdfasdf")
             _, _, _, gt_object, p_object = self.evaluate(object_id)
             
             total_tp += len(p_object[p_object['classification'] == 'TP'])

@@ -63,16 +63,16 @@ ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             clean_consecutives=True)
 
 # NS-Localization
-ns_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'RAAN (deg)', 'Inclination (deg)', 'Latitude (deg)']
+ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 ns_localizer_scaler = pickle.load(open(SCALER_NS_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ns_input_features,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=1,
+                                      input_stride=4,
                                       padding='none',
-                                      input_history_steps=12,
-                                      input_future_steps=12,
+                                      input_history_steps=48,
+                                      input_future_steps=48,
                                       custom_scaler=ns_localizer_scaler,
                                       seed=69)
 
@@ -88,7 +88,7 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=90.0,
+                                            threshold=75.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 print(ns_subm_df.loc[ns_subm_df['TimeIndex']!=0].head(10))
