@@ -57,7 +57,6 @@ class NodeDetectionEvaluator:
                 fn += 1
                 gt_object.loc[gt_idx, 'classification'] = 'FN'
                 
-
         additional_fp = p_object[~p_object['matched']].copy()
         fp += len(additional_fp)
         p_object.loc[additional_fp.index, 'classification'] = 'FP'
@@ -70,6 +69,8 @@ class NodeDetectionEvaluator:
         total_fn = 0
         total_distances = []
         for object_id in self.ground_truth['ObjectID'].unique():
+            if object_id==225:
+                print("asdfasdfasdfasdfasdfasdf")
             _, _, _, gt_object, p_object = self.evaluate(object_id)
             
             total_tp += len(p_object[p_object['classification'] == 'TP'])

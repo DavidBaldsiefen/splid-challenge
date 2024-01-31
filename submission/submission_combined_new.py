@@ -73,14 +73,14 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       padding='none',
                                       input_history_steps=12,
                                       input_future_steps=12,
-                                      custom_scaler=ew_localizer_scaler,
+                                      custom_scaler=ns_localizer_scaler,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\"")
 ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR)
 
 ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
-                                model=ew_localizer,
+                                model=ns_localizer,
                                 train=False,
                                 test=True,
                                 output_dirs=['NS'],
@@ -88,9 +88,10 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=50.0,
+                                            threshold=90.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
+print(ns_subm_df.loc[ns_subm_df['TimeIndex']!=0].head(10))
 
 # Combine locations
 df_locs = pd.concat([ew_subm_df, ns_subm_df]).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
@@ -130,7 +131,7 @@ majority_df = classifier.apply_one_shot_method(preds_df=pred_df, location_df=df_
 # =====================================================================================================
 
 # TEMPORARY: Remove NS detections, because they probably add way more FP than TP
-df_reduced = majority_df.loc[(majority_df['TimeIndex'] == 0) | (majority_df['Direction'] == 'EW')]
+df_reduced = majority_df.loc[(majority_df['TimeIndex'] == 0) | (majority_df['Direction'] == 'EW') | (majority_df['Direction'] == 'NS')]
 # Only EW: 0.56 0.57 0.57?
 # Save final results
 results = df_reduced

@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-#from base import evaluation
 
 def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['EW', 'NS'], verbose=1):
 
@@ -68,40 +67,39 @@ def postprocess_predictions(preds_df, dirs=['EW', 'NS'], threshold=50.0, add_ini
 
     return df
 
-# def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, verbose=1):
-#     # Load gt
-#     ground_truth_df = pd.read_csv(gt_path)
+def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, verbose=1):
+    from base import evaluation
+    # Load gt
+    ground_truth_df = pd.read_csv(gt_path)
 
-#     print(object_ids)
+    # Filter objects
+    print(225 in object_ids)
+    ground_truth_df = ground_truth_df.loc[ground_truth_df['ObjectID'].isin(object_ids)]
+    subm_df = subm_df.loc[subm_df['ObjectID'].isin(object_ids)]
 
-#     # Filter objects
-#     ground_truth_df = ground_truth_df.loc[ground_truth_df['ObjectID'].isin(object_ids)]
-#     subm_df = subm_df.loc[subm_df['ObjectID'].isin(object_ids)]
+    print(ground_truth_df.loc[ground_truth_df['ObjectID']==225])
 
-#     # Filter direction
-#     ground_truth_df = ground_truth_df.loc[(ground_truth_df['Direction'].isin(dirs))]
-#     subm_df = subm_df.loc[(subm_df['Direction'].isin(dirs))]
+    # Filter direction
+    ground_truth_df = ground_truth_df.loc[(ground_truth_df['Direction'].isin(dirs + ['ES']))] # Keep es row, to maintain object for evaluation
+    subm_df = subm_df.loc[(subm_df['Direction'].isin(dirs))]
 
-#     print("wat")
-#     print(subm_df.head(10))
+    # Filter TimeIndices
+    if not with_initial_node:
+        ground_truth_df = ground_truth_df.loc[(ground_truth_df['TimeIndex'] != 0)]
+        subm_df = subm_df.loc[(subm_df['TimeIndex'] != 0)]
 
-#     # Filter TimeIndices
-#     if not with_initial_node:
-#         ground_truth_df = ground_truth_df.loc[(ground_truth_df['TimeIndex'] != 0)]
-#         subm_df = subm_df.loc[(subm_df['Direction'] != 0)]
+    # Initiate evaluator
+    evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True)
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
 
-#     # Initiate evaluator
-#     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True)
-#     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    if verbose>0:
+        print(f'Precision: {precision:.2f}')
+        print(f'Recall: {recall:.2f}')
+        print(f'F2: {f2:.2f}')
+        print(f'RMSE: {float(rmse):.4}')
+        print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
-#     if verbose>0:
-#         print(f'Precision: {precision:.2f}')
-#         print(f'Recall: {recall:.2f}')
-#         print(f'F2: {f2:.2f}')
-#         print(f'RMSE: {float(rmse):.4}')
-#         print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
-
-#     if return_scores:
-#         return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
-#     else:
-#         return evaluator, subm_df
+    if return_scores:
+        return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
+    else:
+        return evaluator, subm_df
