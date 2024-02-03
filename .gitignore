@@ -10,6 +10,7 @@ submission/dataset
 submission/base
 submission/submission
 models/
+wandb/
 
 # User-specific files
 *.rsuser

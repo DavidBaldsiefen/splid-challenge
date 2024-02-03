@@ -20,7 +20,7 @@ input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RA
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
 ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
-direction='EW'
+direction='NS'
 
 label_features=[f'{direction}_Node_Location_nb']
 
@@ -69,12 +69,13 @@ def parameter_sweep(config=None):
         
         # train
         hist = model.fit(train_ds, val_ds=val_ds,
-                         epochs=20,
+                         epochs=35,
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
                          verbose=2)
 
         file_path = wandb.run.dir+"\\model_" + wandb.run.id + ".hdf5"
+        print(f"Saving model to \"{file_path}\"")
         model.model.save(file_path)
         wandb.save(file_path)
 
@@ -139,15 +140,15 @@ def parameter_sweep(config=None):
 
 sweep_configuration = {
     "method": "grid",
-    "metric": {"goal": "maximize", "name": "Recall"},
+    "metric": {"goal": "maximize", "name": "F2"},
     "parameters": {
         "ds_gen" : {
             "parameters" : {
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [4,6,8,10]},
+            "keep_label_stride" : {"values": [8]},
             "input_stride" : {"values": [4]},
-            "per_object_scaling" : {"values" : [True, False]},
+            "per_object_scaling" : {"values" : [True]},
             "transform_features" : {"values": [True]},
             "input_history_steps" : {"values": [48]},
             "input_future_steps" : {"values": [48]},
@@ -159,9 +160,9 @@ sweep_configuration = {
                                           [[32,6],[32,6]],
                                           ]},
             "dense_layers" : {"values": [[16,4]]},
-            "l2_reg" : {"values": [0.0, 0.0002]},
+            "l2_reg" : {"values": [0.0]},
             "input_dropout" : {"values": [0.0]},
-            "mixed_dropout_dense" : {"values": [0.5]},
+            "mixed_dropout_dense" : {"values": [0.25]},
             "mixed_dropout_cnn" : {"values": [0.2]},
             "lr_scheduler" : {"values": [[0.001,7500,0.9]]},
             "seed" : {"values": [0]},
@@ -172,7 +173,6 @@ sweep_configuration = {
 }
 
 # TODO: there used to be (?) a memory leak somewhere here
-# TODO: deterministic training seems to be not so deterministic... possibly related to ds shuffle?
 ##########################################################
 # Start the actual sweep
 wandb.login()

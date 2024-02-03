@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -61,7 +61,7 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             dirs=['EW'],
-                                            threshold=50.0,
+                                            threshold=55.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -74,9 +74,10 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       train_val_split=1.0,
                                       input_stride=4,
                                       padding='none',
-                                      input_history_steps=64,
-                                      input_future_steps=64,
-                                      custom_scaler=ns_localizer_scaler,
+                                      input_history_steps=48,
+                                      input_future_steps=48,
+                                      per_object_scaling=True,
+                                      custom_scaler=None,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
@@ -91,7 +92,7 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=50.0,
+                                            threshold=55.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -137,7 +138,7 @@ df_reduced = majority_df.loc[(majority_df['TimeIndex'] == 0) | (majority_df['Dir
 
 # Save final results
 results = df_reduced
-print(results.head(10))
+print(results.head(5))
 
 if not DEBUG_MODE:
     print(f"Finished predictions, saving to \"{TEST_PREDS_FP}\"")
