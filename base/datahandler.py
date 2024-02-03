@@ -6,6 +6,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from pathlib import Path
 from tqdm import tqdm
 import copy
+import gc
 
 
 def load_and_prepare_dataframes(data_dir, labels_dir):
@@ -94,16 +95,17 @@ class DatasetGenerator():
                  pad_location_labels=0,
                  nonbinary_padding=[],
                  input_stride=1, # distance between input steps
-                 padding='zero', # wether to use no/zero/same padding at the beginning and end of each df
+                 padding='none', # wether to use none/zero/same padding at the beginning and end of each df
                  transform_features=True, # wether to apply sin to certain features
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
                  scale=True,
+                 per_object_scaling=False,
                  custom_scaler=None,
                  verbose=1):
 
-        split_df = copy.deepcopy(split_df)
+        split_df = copy.deepcopy(split_df) # TODO: maybe this eats up loads of memory or sth?
 
         self._input_features=input_features
         self._with_labels=with_labels
@@ -127,7 +129,7 @@ class DatasetGenerator():
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {self._padding}")
-            print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''}")
+            print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
             print(f"Horizons: {self._input_history_steps}-{self._input_future_steps} @ stride {self._input_stride}")
 
         # Make sure all val labels are also in train
@@ -153,11 +155,15 @@ class DatasetGenerator():
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
-            concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
-            scaler = StandardScaler().fit(concatenated_train_df[input_features].values) if custom_scaler is None else custom_scaler
-            self._scaler = scaler
-            for key in self._train_keys + self._val_keys:
-                split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
+            if per_object_scaling:
+                for key in self._train_keys + self._val_keys:
+                    split_df[key][input_features] = StandardScaler().fit_transform(split_df[key][input_features].values)
+            else:
+                concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
+                scaler = StandardScaler().fit(concatenated_train_df[input_features].values) if custom_scaler is None else custom_scaler
+                self._scaler = scaler
+                for key in self._train_keys + self._val_keys:
+                    split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
 
         # pad the location labels, making them "wider"
         if pad_location_labels>0 and with_labels:
@@ -212,7 +218,10 @@ class DatasetGenerator():
         if verbose > 0:
             print(f"=========================Finished Generator=======================")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features, only_nodes, with_identifier, input_history_steps, input_future_steps, stride, input_stride, padding):
+    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features,
+                                  only_nodes, with_identifier, input_history_steps, input_future_steps, stride, keep_label_stride,
+                                  input_stride,
+                                  padding):
         window_size = input_history_steps + input_future_steps
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
@@ -244,13 +253,16 @@ class DatasetGenerator():
             inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
                 new_dt = np.int32
-                if 'EW_Node_Location_nb' in label_features:
+                if ('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features):
                     new_dt = np.float32
                 labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)[::stride]
             if only_nodes:
                 node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
             current_row+=strided_obj_len
+
+            del extended_df # try to preserve some memory
+        gc.collect() # try to preserve some memory
 
         # if wanted, only preserve items with nodes
         if only_nodes:
@@ -271,6 +283,18 @@ class DatasetGenerator():
             # inputs = inputs[initial_nodes]
             # labels = labels[initial_nodes]
             # element_identifiers = element_identifiers[initial_nodes]
+
+        if keep_label_stride>1:
+            if stride > 1:
+                print("Warning: normal and keep-label stride applied simultaneously; Use only one!")
+            # create a strided binary array that is 1 at the stride interval and wherever labels are
+            stride_idcs = np.zeros((labels.shape[0]), dtype=np.int32)
+            stride_idcs[::keep_label_stride] = 1
+            stride_idcs[np.argwhere(labels[:,:] > 0.0)[:,0]] = 1
+            indices_to_keep = np.argwhere(stride_idcs==1)[:,0]
+            inputs = inputs[indices_to_keep]
+            labels = labels[indices_to_keep]
+            element_identifiers = element_identifiers[indices_to_keep]
             
 
         datasets = [Dataset.from_tensor_slices((inputs))]
@@ -279,6 +303,12 @@ class DatasetGenerator():
         if with_identifier:
             datasets += [Dataset.from_tensor_slices((element_identifiers))]
         
+        # Do some garbage collection - StackOverflow is not sure if this will help or not
+        del labels
+        del inputs
+        del element_identifiers
+        gc.collect()
+
         if len(datasets)>1:
             return Dataset.zip(tuple(datasets))
         else:
@@ -286,7 +316,7 @@ class DatasetGenerator():
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], 
                      with_identifier=False, only_nodes=False, shuffle=True,
-                     train_keys=None, val_keys=None, stride=1):
+                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1):
         
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
@@ -300,6 +330,7 @@ class DatasetGenerator():
                                                 input_history_steps=self._input_history_steps,
                                                 input_future_steps=self._input_future_steps,
                                                 stride=stride,
+                                                keep_label_stride=keep_label_stride,
                                                 input_stride=self._input_stride,
                                                 padding=self._padding)
         datasets = [train_ds]
@@ -313,6 +344,7 @@ class DatasetGenerator():
                                                     input_history_steps=self._input_history_steps,
                                                     input_future_steps=self._input_future_steps,
                                                     stride=stride,
+                                                    keep_label_stride=keep_label_stride,
                                                     input_stride=self._input_stride,
                                                     padding=self._padding)
             datasets.append(val_ds)

@@ -32,6 +32,48 @@ def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['E
 
     return df
 
+def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'], object_ids=[1], threshold=50.0, zoom=False):
+    import matplotlib.pyplot as plt
+
+    ds, v_ds = ds_gen.get_datasets(batch_size=256,
+                                label_features=label_features,
+                                shuffle=False,
+                                with_identifier=True,
+                                train_keys=object_ids,
+                                val_keys=[ds_gen.val_keys[0]],
+                                stride=1)
+
+    
+    labels = np.concatenate([element for element in ds.map(lambda x,y,z: y[label_features[0]]).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
+    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
+    preds = model.predict(inputs, verbose=2).astype(np.int32) # we dont need float precision
+    df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds])
+
+    df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + ['Preds'], dtype=np.int32)
+
+    # TODO: zoom on main parts, plot postprocessed preds
+    # TODO: add nice breaks https://stackoverflow.com/questions/5656798/is-there-a-way-to-make-a-discontinuous-axis-in-matplotlib
+    if zoom:
+        max_val = np.max(df[label_features[0]])
+        timeindices = df.index[(df[label_features[0]] == max_val) | (df['Preds'] >= threshold)].to_numpy() # only consider locations with timeindex > 1
+        print(timeindices.shape)
+        for timeindex in timeindices:
+            # Using index as timeindex????
+            df.loc[timeindex-20:timeindex+20, 'keep'] = True
+        df = df.loc[df['keep'] == True]
+
+    fig, axes = plt.subplots(nrows=len(object_ids), ncols=1, figsize=(16,4*len(object_ids)))
+    plt.tight_layout()
+    for idx, object_id in enumerate(object_ids):
+        axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), label_features].to_numpy())
+        axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), 'Preds'].to_numpy())
+        axes[idx].axhline(y=threshold, color='g', linestyle='--')
+        axes[idx].title.set_text(object_id)
+    fig.show()
+
+    
+
 def postprocess_predictions(preds_df, dirs=['EW', 'NS'], threshold=50.0, add_initial_node=False, clean_consecutives=True):
     """Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
     """

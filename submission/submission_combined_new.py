@@ -5,48 +5,51 @@ from pathlib import Path
 from tqdm import tqdm
 import pickle
 import time
-import sys
+import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_EW_DIR = Path('models/ew_localizer.hdf5') if DEBUG_MODE else Path('/models/ew_localizer.hdf5')
-SCALER_EW_DIR = Path('models/EW_localizer_scaler.pkl') if DEBUG_MODE else Path('/models/EW_localizer_scaler.pkl')
+# TODO: move if/else into the Path
+LOCALIZER_EW_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_localizer_cnn.hdf5')
+SCALER_EW_DIR = Path(('' if DEBUG_MODE else '/') + 'models/EW_localizer_scaler_cnn.pkl')
 
-LOCALIZER_NS_DIR = Path('models/ns_localizer.hdf5') if DEBUG_MODE else Path('/models/ns_localizer.hdf5')
-SCALER_NS_DIR = Path('models/NS_localizer_scaler.pkl') if DEBUG_MODE else Path('/models/NS_localizer_scaler.pkl')
+LOCALIZER_NS_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ns_localizer_cnn.hdf5')
+SCALER_NS_DIR = Path(('' if DEBUG_MODE else '/') + 'models/NS_localizer_scaler_cnn.pkl')
 
-CLASSIFIER_DIR = Path('models/ew_ns_classifier_oneshot.hdf5') if DEBUG_MODE else Path('/models/ew_ns_classifier_oneshot.hdf5')
-SCALER_CLASSIFIER_DIR = Path('models/ew_ns_classifier_scaler_oneshot.pkl') if DEBUG_MODE else Path('/models/ew_ns_classifier_scaler_oneshot.pkl')
+CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
+SCALER_CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
-TEST_DATA_DIR = Path('dataset/val/') if DEBUG_MODE else Path('/dataset/test/')
-TEST_PREDS_FP = Path('submission/submission.csv') if DEBUG_MODE else Path('/submission/submission.csv')
+TEST_DATA_DIR = Path(('' if DEBUG_MODE else '/') + 'dataset/test/')
+TEST_PREDS_FP = Path(('' if DEBUG_MODE else '/') + 'submission/submission.csv')
 
 # Load Data
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
 print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DIR}\". Creating dataset")
 
 # =================================LOCALIZATION==========================================
-# EW-Localization
+# TODO: add some safeguard in case there are too many detections in one object
+#-----------------------------------EW-------------------------------
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
 ew_localizer_scaler = pickle.load(open(SCALER_EW_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ew_input_features,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=1,
+                                      input_stride=4,
                                       padding='none',
-                                      input_history_steps=12,
-                                      input_future_steps=12,
-                                      custom_scaler=ew_localizer_scaler,
+                                      input_history_steps=48,
+                                      input_future_steps=48,
+                                      per_object_scaling=True,
+                                      custom_scaler=None,
                                       seed=69)
 
-print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\"")
+print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\" and scaler \"{SCALER_EW_DIR}\"")
 ew_localizer = tf.keras.models.load_model(LOCALIZER_EW_DIR)
 
 ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
@@ -61,8 +64,8 @@ ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             threshold=50.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
-
-# NS-Localization
+gc.collect()
+#-----------------------------------NS-------------------------------
 ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 ns_localizer_scaler = pickle.load(open(SCALER_NS_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
@@ -71,12 +74,12 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       train_val_split=1.0,
                                       input_stride=4,
                                       padding='none',
-                                      input_history_steps=48,
-                                      input_future_steps=48,
+                                      input_history_steps=64,
+                                      input_future_steps=64,
                                       custom_scaler=ns_localizer_scaler,
                                       seed=69)
 
-print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\"")
+print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
 ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR)
 
 ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
@@ -88,10 +91,11 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=75.0,
+                                            threshold=50.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
-# Combine locations
+gc.collect()
+#--------------------------------COMBINE-------------------------------
 df_locs = pd.concat([ew_subm_df, ns_subm_df]).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
 print(f"#EW_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'EW')])}")
@@ -133,11 +137,11 @@ df_reduced = majority_df.loc[(majority_df['TimeIndex'] == 0) | (majority_df['Dir
 
 # Save final results
 results = df_reduced
-print(f"Finished predictions, saving to \"{TEST_PREDS_FP}\"")
 print(results.head(10))
-results.to_csv(TEST_PREDS_FP, index=False)
 
 if not DEBUG_MODE:
+    print(f"Finished predictions, saving to \"{TEST_PREDS_FP}\"")
+    results.to_csv(TEST_PREDS_FP, index=False)
     print("Done. Sleeping for 6 minutes.")
     time.sleep(360) # TEMPORARY FIX TO OVERCOME EVALAI BUG
     print("Finished sleeping")

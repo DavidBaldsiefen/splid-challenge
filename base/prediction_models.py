@@ -171,7 +171,9 @@ class Linear_NN(Prediction_Model):
         self.compile()
 
 class Dense_NN(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv1d_layers=[], dense_layers=[32,32], l2_reg=0.0, lr_scheduler=[], seed=None):
+    def __init__(self, ds, input_dropout=0.0, mixed_dropout_dense=0.0, mixed_dropout_cnn=0.0, mixed_dropout_lstm=0.0, mixed_batchnorm=False,
+                 conv1d_layers=[], lstm_layers=[], dense_layers=[32,32],
+                 l2_reg=0.0, lr_scheduler=[], seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
 
@@ -182,23 +184,44 @@ class Dense_NN(Prediction_Model):
         inputs = layers.Input(shape=in_shape, name='Input')
         x = inputs
 
+        if input_dropout > 0.0:
+            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+
         for filters, kernel_size in conv1d_layers:
-            x = layers.Conv1D(filters, kernel_size, activation="relu",
+            x = layers.Conv1D(filters, kernel_size, activation=None,
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
+            if mixed_batchnorm > 0.0:
+                x = layers.BatchNormalization()(x)
+            x = layers.Activation('relu')(x)
+            if mixed_dropout_cnn > 0.0:
+                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+
+        for layer_id, units in enumerate(lstm_layers):
+            x = layers.LSTM(units, 
+                            activation='tanh',
+                              return_sequences=(layer_id!=(len(lstm_layers)-1)),
+                              kernel_regularizer=regularizers.l2(l2_reg),
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              recurrent_initializer=self.createInitializer('orthogonal'),
+                              bias_initializer=self.createInitializer('zeros')
+                              )(x)
+            if mixed_batchnorm > 0.0:
+                x = layers.BatchNormalization()(x)
+            if mixed_dropout_lstm > 0.0:
+                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
         x = layers.Flatten()(x)
-        if input_dropout > 0.0:
-            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
         for units in dense_layers:
             x = layers.Dense(units=units,
-                               activation="relu",
+                               activation=None,
                                kernel_regularizer=regularizers.l2(l2_reg),
                                kernel_initializer=self.createInitializer('glorot_uniform'),
                                bias_initializer=self.createInitializer('zeros'))(x)
-            if mixed_dropout > 0.0:
+            x = layers.Activation('relu')(x)
+            if mixed_dropout_dense > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
         outputs = []
         binary_output = False
@@ -237,7 +260,7 @@ class Dense_NN(Prediction_Model):
             self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class Dense_NN_regression(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv1d_layers=[],
+    def __init__(self, ds, input_dropout=0.0, mixed_dropout_dense=0.0, mixed_dropout_cnn=0.0, conv1d_layers=[],
                  dense_layers=[32,32], l2_reg=0.0, lr_scheduler=[],
                  final_activation='sigmoid',
                  seed=None):
@@ -251,23 +274,28 @@ class Dense_NN_regression(Prediction_Model):
         inputs = layers.Input(shape=in_shape, name='Input')
         x = inputs
 
+        if input_dropout > 0.0:
+            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+
         for filters, kernel_size in conv1d_layers:
-            x = layers.Conv1D(filters, kernel_size, activation="relu",
+            x = layers.Conv1D(filters, kernel_size, activation=None,
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
+            x = layers.Activation('relu')(x)
+            if mixed_dropout_cnn > 0.0:
+                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
         x = layers.Flatten()(x)
-        if input_dropout > 0.0:
-            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+        
         for units in dense_layers:
             x = layers.Dense(units=units,
                                activation="relu",
                                kernel_regularizer=regularizers.l2(l2_reg),
                                kernel_initializer=self.createInitializer('glorot_uniform'),
                                bias_initializer=self.createInitializer('zeros'))(x)
-            if mixed_dropout > 0.0:
+            if mixed_dropout_dense > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
         outputs = []
         binary_output = False
