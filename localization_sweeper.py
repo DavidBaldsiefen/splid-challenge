@@ -176,6 +176,6 @@ sweep_configuration = {
 ##########################################################
 # Start the actual sweep
 wandb.login()
-project="splid-challenge"
+project="splid-challenge-localizer"
 sweep_id = wandb.sweep(sweep=sweep_configuration, project=project)
 wandb.agent(sweep_id, project=project, function=parameter_sweep)
