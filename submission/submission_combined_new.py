@@ -35,7 +35,9 @@ print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DI
 # =================================LOCALIZATION==========================================
 # TODO: add some safeguard in case there are too many detections in one object
 #-----------------------------------EW-------------------------------
-ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
+ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
+                        'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
+                        'Longitude (deg)', 'Altitude (m)']
 ew_localizer_scaler = pickle.load(open(SCALER_EW_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ew_input_features,
@@ -43,8 +45,8 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       train_val_split=1.0,
                                       input_stride=4,
                                       padding='none',
-                                      input_history_steps=48,
-                                      input_future_steps=48,
+                                      input_history_steps=64,
+                                      input_future_steps=24,
                                       per_object_scaling=True,
                                       custom_scaler=None,
                                       seed=69)
@@ -61,12 +63,14 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             dirs=['EW'],
-                                            threshold=55.0,
+                                            threshold=65.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
 #-----------------------------------NS-------------------------------
-ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
+ns_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
+                        'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
+                        'Longitude (deg)', 'Altitude (m)']
 ns_localizer_scaler = pickle.load(open(SCALER_NS_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ns_input_features,
@@ -74,8 +78,8 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       train_val_split=1.0,
                                       input_stride=4,
                                       padding='none',
-                                      input_history_steps=48,
-                                      input_future_steps=48,
+                                      input_history_steps=64,
+                                      input_future_steps=24,
                                       per_object_scaling=True,
                                       custom_scaler=None,
                                       seed=69)

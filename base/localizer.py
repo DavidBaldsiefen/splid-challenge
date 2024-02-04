@@ -1,32 +1,71 @@
 import numpy as np
 import pandas as pd
 
-def create_prediction_df(ds_gen, model, train=False, test=False, output_dirs=['EW', 'NS'], object_limit=None, verbose=1):
+# Helper lambdas
+def get_x_from_xy(x,y):
+    return x
+def get_y_from_xy(x,y):
+    return y
+def get_x_from_xyz(x,y,z):
+    return x
+def get_y_from_xyz(x,y,z):
+    return y
+def get_z_from_xyz(x,y,z):
+    return z
+
+def create_prediction_df(ds_gen,
+                         model,
+                         train=False,
+                         test=False,
+                         output_dirs=['EW', 'NS'],
+                         object_limit=None,
+                         prediction_batches=1,
+                         verbose=1):
     if test and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
+    
+    all_identifiers = []
+    all_predictions = []
 
-    train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
-    val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
-    datasets = ds_gen.get_datasets(batch_size=512,
-                                     label_features=[],
-                                     shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
-                                     with_identifier=True,
-                                     train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
-                                     val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
-                                     stride=1)
-    ds = (datasets[0] if train else datasets[1]) if not test else datasets
+    all_train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
+    train_batch_size = int(np.ceil(len(all_train_keys)/prediction_batches))
+    all_val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
+    val_batch_size = int(np.ceil(len(all_val_keys)/prediction_batches))
+    for batch_idx in range(prediction_batches):
 
-    inputs = np.concatenate([element for element in ds.map(lambda x,y: x).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(lambda x,y: y).as_numpy_iterator()])
+        train_keys = all_train_keys[batch_idx*train_batch_size:batch_idx*train_batch_size+train_batch_size]
+        val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
 
-    df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
+        datasets = ds_gen.get_datasets(batch_size=512,
+                                        label_features=[],
+                                        shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+                                        with_identifier=True,
+                                        train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
+                                        val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
+                                        stride=1)
+        ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
-    # get predictions
-    preds = model.predict(inputs, verbose=verbose)
+        inputs = np.concatenate([element for element in ds.map(get_x_from_xy).as_numpy_iterator()])
+        identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
+
+        # get predictions
+        preds = model.predict(inputs, verbose=verbose)
+
+        all_identifiers.append(identifiers)
+        all_predictions.append(preds)
+
+    # now create df by concatenating all the individual lists
+    all_identifiers = np.concatenate(all_identifiers)
+    all_predictions = np.concatenate(all_predictions)
+
+    print(all_identifiers.shape)
+    print(all_predictions.shape)
+
+    df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
     # Ordering of model_outputs MUST MATCH with actual outputs!
     for dir_idx, dir in enumerate(output_dirs):
-        df[f'{dir}_Loc'] = preds[dir_idx] if len(output_dirs)>1 else preds
+        df[f'{dir}_Loc'] = all_predictions[dir_idx] if len(output_dirs)>1 else all_predictions
 
     df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
@@ -45,8 +84,8 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
 
     
     labels = np.concatenate([element for element in ds.map(lambda x,y,z: y[label_features[0]]).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(lambda x,y,z: z).as_numpy_iterator()])
-    inputs = np.concatenate([element for element in ds.map(lambda x,y,z: x).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
+    inputs = np.concatenate([element for element in ds.map(get_x_from_xyz).as_numpy_iterator()])
     preds = model.predict(inputs, verbose=2).astype(np.int32) # we dont need float precision
     df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds])
 

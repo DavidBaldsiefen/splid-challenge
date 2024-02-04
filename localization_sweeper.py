@@ -18,7 +18,7 @@ input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RA
        'Longitude (deg)', 'Altitude (m)']
 
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
-ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
+ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
 direction='NS'
 
@@ -28,6 +28,8 @@ label_features=[f'{direction}_Node_Location_nb']
 def parameter_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
+
+        print(f"Direction: {direction}")
 
         # Create Dataset
         utils.set_random_seed(42)
@@ -58,10 +60,12 @@ def parameter_sweep(config=None):
         model = prediction_models.Dense_NN_regression(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
+                                           lstm_layers=config.model['lstm_layers'],
                                            l2_reg=config.model['l2_reg'],
                                            input_dropout=config.model['input_dropout'],
                                            mixed_dropout_dense=config.model['mixed_dropout_dense'],
                                            mixed_dropout_cnn=config.model['mixed_dropout_cnn'],
+                                           mixed_dropout_lstm=config.model['mixed_dropout_lstm'],
                                            lr_scheduler=config.model['lr_scheduler'],
                                            final_activation='linear',
                                            seed=0)
@@ -69,7 +73,7 @@ def parameter_sweep(config=None):
         
         # train
         hist = model.fit(train_ds, val_ds=val_ds,
-                         epochs=35,
+                         epochs=45,
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
                          verbose=2)
@@ -87,6 +91,7 @@ def parameter_sweep(config=None):
                                 test=False,
                                 output_dirs=[direction],
                                 object_limit=None,
+                                prediction_batches=4,
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
@@ -114,6 +119,7 @@ def parameter_sweep(config=None):
                                 test=False,
                                 output_dirs=[direction],
                                 object_limit=train_object_limit,
+                                prediction_batches=4,
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
@@ -150,21 +156,25 @@ sweep_configuration = {
             "input_stride" : {"values": [4]},
             "per_object_scaling" : {"values" : [True]},
             "transform_features" : {"values": [True]},
-            "input_history_steps" : {"values": [48]},
-            "input_future_steps" : {"values": [48]},
+            "input_history_steps" : {"values": [64]},
+            "input_future_steps" : {"values": [24]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [
-                                          [[32,6],[32,6]],
+                                          [],
                                           ]},
             "dense_layers" : {"values": [[16,4]]},
+            "lstm_layers" : {"values": [[32,32],
+                                        [32,32,32],
+                                        [16,16]]},
             "l2_reg" : {"values": [0.0]},
             "input_dropout" : {"values": [0.0]},
             "mixed_dropout_dense" : {"values": [0.25]},
             "mixed_dropout_cnn" : {"values": [0.2]},
-            "lr_scheduler" : {"values": [[0.001,7500,0.9]]},
+            "mixed_dropout_lstm" : {"values": [0.0,0.25]},
+            "lr_scheduler" : {"values": [[0.003,7500,0.8]]},
             "seed" : {"values": [0]},
             }
         },

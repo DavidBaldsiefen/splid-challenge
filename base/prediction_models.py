@@ -260,9 +260,17 @@ class Dense_NN(Prediction_Model):
             self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class Dense_NN_regression(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout_dense=0.0, mixed_dropout_cnn=0.0, conv1d_layers=[],
-                 dense_layers=[32,32], l2_reg=0.0, lr_scheduler=[],
-                 final_activation='sigmoid',
+    def __init__(self, ds,
+                 input_dropout=0.0,
+                 mixed_dropout_dense=0.0,
+                 mixed_dropout_cnn=0.0,
+                 mixed_dropout_lstm=0.0,
+                 conv1d_layers=[],
+                 dense_layers=[32,32],
+                 lstm_layers=[],
+                 l2_reg=0.0,
+                 lr_scheduler=[],
+                 final_activation='linear',
                  seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
@@ -285,6 +293,18 @@ class Dense_NN_regression(Prediction_Model):
                               )(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_cnn > 0.0:
+                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+
+        for layer_id, units in enumerate(lstm_layers):
+            x = layers.LSTM(units, 
+                            activation='tanh',
+                              return_sequences=(layer_id!=(len(lstm_layers)-1)),
+                              kernel_regularizer=regularizers.l2(l2_reg),
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              recurrent_initializer=self.createInitializer('orthogonal'),
+                              bias_initializer=self.createInitializer('zeros')
+                              )(x)
+            if mixed_dropout_lstm > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
         x = layers.Flatten()(x)
