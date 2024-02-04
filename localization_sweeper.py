@@ -73,7 +73,7 @@ def parameter_sweep(config=None):
         
         # train
         hist = model.fit(train_ds, val_ds=val_ds,
-                         epochs=45,
+                         epochs=40,
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
                          verbose=2)
@@ -84,14 +84,16 @@ def parameter_sweep(config=None):
         wandb.save(file_path)
 
         # perform final evaluation
-        print("Running val-evaluation:")
+        n_batches = int(np.ceil(((config.ds_gen['input_history_steps'] + config.ds_gen['input_future_steps']) / config.ds_gen['input_stride']) / 30.0))
+        print(f"Running val-evaluation ({n_batches} batches):")
+
         preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=model,
                                 train=False,
                                 test=False,
                                 output_dirs=[direction],
                                 object_limit=None,
-                                prediction_batches=4,
+                                prediction_batches=n_batches,
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
@@ -112,14 +114,14 @@ def parameter_sweep(config=None):
             wandb.run.summary[f'{key}'] = value
 
         train_object_limit = 500
-        print(f"Running train-evaluation on a subset of {train_object_limit} objects:")
+        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches):")
         preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=model,
                                 train=True,
                                 test=False,
                                 output_dirs=[direction],
                                 object_limit=train_object_limit,
-                                prediction_batches=4,
+                                prediction_batches=n_batches,
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
@@ -153,27 +155,25 @@ sweep_configuration = {
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [8]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [4,2,1]},
             "per_object_scaling" : {"values" : [True]},
             "transform_features" : {"values": [True]},
-            "input_history_steps" : {"values": [64]},
-            "input_future_steps" : {"values": [24]},
+            "input_history_steps" : {"values": [64,96]},
+            "input_future_steps" : {"values": [24,48]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [
-                                          [],
+                                          [[32,9],[32,6],[32,3]],
                                           ]},
-            "dense_layers" : {"values": [[16,4]]},
-            "lstm_layers" : {"values": [[32,32],
-                                        [32,32,32],
-                                        [16,16]]},
+            "dense_layers" : {"values": [[32,16]]},
+            "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.0]},
             "input_dropout" : {"values": [0.0]},
             "mixed_dropout_dense" : {"values": [0.25]},
             "mixed_dropout_cnn" : {"values": [0.2]},
-            "mixed_dropout_lstm" : {"values": [0.0,0.25]},
+            "mixed_dropout_lstm" : {"values": [0.0]},
             "lr_scheduler" : {"values": [[0.003,7500,0.8]]},
             "seed" : {"values": [0]},
             }

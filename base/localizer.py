@@ -57,10 +57,7 @@ def create_prediction_df(ds_gen,
     # now create df by concatenating all the individual lists
     all_identifiers = np.concatenate(all_identifiers)
     all_predictions = np.concatenate(all_predictions)
-
-    print(all_identifiers.shape)
-    print(all_predictions.shape)
-
+    
     df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
     # Ordering of model_outputs MUST MATCH with actual outputs!

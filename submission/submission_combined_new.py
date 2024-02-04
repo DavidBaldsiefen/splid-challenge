@@ -59,11 +59,12 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['EW'],
+                                prediction_batches=3,
                                 verbose=2)
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             dirs=['EW'],
-                                            threshold=65.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -92,11 +93,12 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['NS'],
+                                prediction_batches=3,
                                 verbose=2)
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=55.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
