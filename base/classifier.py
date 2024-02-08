@@ -21,7 +21,7 @@ def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type'
     preds = model.predict(ds_with_labels, verbose=0)
 
 
-    fig, axes = plt.subplots(nrows=1, ncols=len(output_names), figsize=(12,4))
+    fig, axes = plt.subplots(nrows=1, ncols=len(output_names), figsize=(6*len(output_names),4))
     plt.tight_layout()
     for output_idx, output_name in enumerate(output_names):
         labels = np.concatenate([element for element in ds_with_labels.map(lambda x,y,z: y[output_name]).as_numpy_iterator()])
@@ -30,14 +30,20 @@ def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type'
         if output_name == 'EW_Type' or output_name == 'NS_Type':
             ticklabels = ds_gen.type_label_encoder.inverse_transform(ticklabels)
         
-        confusion_mtx = tf.math.confusion_matrix(labels, np.argmax(preds[output_idx], axis=1))
+        confusion_mtx = tf.math.confusion_matrix(labels, np.argmax(preds[output_idx] if len(output_names)>1 else preds, axis=1))
         sns.heatmap(confusion_mtx,
                     xticklabels=ticklabels,
                     yticklabels=ticklabels,
-                    annot=True, fmt='g', ax=axes[output_idx])
-        axes[output_idx].set_title(output_name)
-        axes[output_idx].set_xlabel('Prediction')
-        axes[output_idx].set_ylabel('Label')
+                    annot=True, fmt='g', ax=axes[output_idx] if len(output_names)>1 else axes)
+        
+        if len(output_names)>1:
+            axes[output_idx].set_title(output_name)
+            axes[output_idx].set_xlabel('Prediction')
+            axes[output_idx].set_ylabel('Label')
+        else:
+            axes.set_title(output_name)
+            axes.set_xlabel('Prediction')
+            axes.set_ylabel('Label')
     fig.show()
 
 def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'],
@@ -48,7 +54,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
     train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
     val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
     datasets = ds_gen.get_datasets(batch_size=512,
-                                     label_features=[] if test else ['EW_Type', 'NS_Type'],
+                                     label_features=[] if test else model_outputs,
                                      shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                      with_identifier=True,
                                      train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
@@ -90,7 +96,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
 
     return df
 
-def apply_one_shot_method(preds_df, location_df):
+def apply_one_shot_method(preds_df, location_df, dirs=['EW', 'NS']):
     """Take the locations from location_df and apply immediate prediction
     Assumes preds_df to have columns [OjectID, TimeIndex, EW_Type, NS_Type]
     Assumes location_df to have columns [OjectID, TimeIndex, Direction]
@@ -102,7 +108,7 @@ def apply_one_shot_method(preds_df, location_df):
     location_df = location_df[['ObjectID', 'TimeIndex', 'Direction']]
 
     dfs = []
-    for dir in ['EW', 'NS']:
+    for dir in dirs:
         # merge locs into preds
         df = location_df.copy()
         df = df.loc[df['Direction'] == dir]

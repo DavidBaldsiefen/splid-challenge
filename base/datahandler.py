@@ -453,7 +453,8 @@ class DatasetGenerator():
             datasets.append(val_ds)
             
         if shuffle:
-            datasets = [ds.shuffle(100, seed=self._seed) for ds in datasets]
+            print("Train-DS Cardinality:", datasets[0].cardinality())
+            datasets = [ds.shuffle(ds.cardinality(), seed=self._seed) for ds in datasets]
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]

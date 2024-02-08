@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from tensorflow.data import Dataset
+import gc
 
 # Helper lambdas
 def get_x_from_xy(x,y):
@@ -15,14 +17,18 @@ def get_z_from_xyz(x,y,z):
 
 def create_prediction_df(ds_gen,
                          model,
+                         stateful=False,
                          train=False,
                          test=False,
                          output_dirs=['EW', 'NS'],
                          object_limit=None,
                          prediction_batches=1,
+                         ds_batch_size=256,
                          verbose=1):
     if test and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
+    if stateful and prediction_batches != 1:
+        print("Warning: Prediction batches needs to be '1' for stateful LSTMs!")
     
     all_identifiers = []
     all_predictions = []
@@ -36,28 +42,57 @@ def create_prediction_df(ds_gen,
         train_keys = all_train_keys[batch_idx*train_batch_size:batch_idx*train_batch_size+train_batch_size]
         val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
 
-        datasets = ds_gen.get_datasets(batch_size=512,
-                                        label_features=[],
-                                        shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+        datasets = None
+        if not stateful:
+            datasets = ds_gen.get_datasets(batch_size=ds_batch_size,
+                                            label_features=[],
+                                            shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+                                            with_identifier=True,
+                                            train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
+                                            val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
+                                            stride=1)
+            ds = (datasets[0] if train else datasets[1]) if not test else datasets
+
+            #inputs = np.concatenate([element for element in ds.map(get_x_from_xy).as_numpy_iterator()])
+            identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
+
+            # get predictions
+            preds = model.predict(ds, verbose=verbose)
+
+            all_identifiers.append(identifiers)
+            all_predictions.append(preds)
+            #del inputs
+        else:
+            datasets = ds_gen.get_stateful_datasets(label_features=[],
                                         with_identifier=True,
                                         train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
                                         val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
                                         stride=1)
-        ds = (datasets[0] if train else datasets[1]) if not test else datasets
+            ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
-        inputs = np.concatenate([element for element in ds.map(get_x_from_xy).as_numpy_iterator()])
-        identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
+            inputs = np.stack([element for element in ds.map(get_x_from_xy).as_numpy_iterator()])
+            identifiers = np.stack([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
-        # get predictions
-        preds = model.predict(inputs, verbose=verbose)
+            for obj in range(inputs.shape[1]):
+                sub_inputs = inputs[:,obj,:,:]
+                sub_ds = Dataset.from_tensor_slices((sub_inputs))
+                sub_ds = sub_ds.batch(1)
+                sub_identifiers = identifiers[:,obj,:]
 
-        all_identifiers.append(identifiers)
-        all_predictions.append(preds)
+
+                # get predictions
+                preds = model.predict(sub_ds, verbose=verbose)
+
+                all_identifiers.append(sub_identifiers)
+                all_predictions.append(preds)
+
+        del ds
+        gc.collect()
 
     # now create df by concatenating all the individual lists
     all_identifiers = np.concatenate(all_identifiers)
     all_predictions = np.concatenate(all_predictions)
-    
+
     df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
     # Ordering of model_outputs MUST MATCH with actual outputs!

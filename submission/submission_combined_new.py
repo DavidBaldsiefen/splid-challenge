@@ -16,17 +16,17 @@ if DEBUG_MODE:
     print("Warning: Running in debug-mode, disable before submitting!")
 
 # TODO: move if/else into the Path
-LOCALIZER_EW_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_localizer_cnn.hdf5')
-SCALER_EW_DIR = Path(('' if DEBUG_MODE else '/') + 'models/EW_localizer_scaler_cnn.pkl')
+LOCALIZER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_localizer_cnn.hdf5')
+SCALER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/EW_localizer_scaler_cnn.pkl')
 
-LOCALIZER_NS_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ns_localizer_cnn.hdf5')
-SCALER_NS_DIR = Path(('' if DEBUG_MODE else '/') + 'models/NS_localizer_scaler_cnn.pkl')
+LOCALIZER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ns_localizer_cnn.hdf5')
+SCALER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/NS_localizer_scaler_cnn.pkl')
 
-CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
+CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
-TEST_DATA_DIR = Path(('' if DEBUG_MODE else '/') + 'dataset/test/')
-TEST_PREDS_FP = Path(('' if DEBUG_MODE else '/') + 'submission/submission.csv')
+TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test/')
+TEST_PREDS_FP = Path(('submission/' if DEBUG_MODE else '/') + 'submission/submission.csv')
 
 # Load Data
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
@@ -43,9 +43,9 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ew_input_features,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=4,
+                                      input_stride=2,
                                       padding='none',
-                                      input_history_steps=64,
+                                      input_history_steps=48,
                                       input_future_steps=24,
                                       per_object_scaling=True,
                                       custom_scaler=None,
@@ -77,9 +77,9 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ns_input_features,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=4,
+                                      input_stride=2,
                                       padding='none',
-                                      input_history_steps=64,
+                                      input_history_steps=48,
                                       input_future_steps=24,
                                       per_object_scaling=True,
                                       custom_scaler=None,
@@ -130,6 +130,7 @@ pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 model=classifier_model,
                                 train=False,
                                 test=True,
+                                only_nodes=False,
                                 model_outputs=['EW_Type', 'NS_Type'],
                                 object_limit=None,
                                 verbose=2)
@@ -154,7 +155,7 @@ if not DEBUG_MODE:
     print("Finished sleeping")
 else:
     print("Evaluating...")
-    ground_truth_df = pd.read_csv(Path('dataset/val_labels.csv'))
+    ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
     print(f'Precision: {precision:.2f}')

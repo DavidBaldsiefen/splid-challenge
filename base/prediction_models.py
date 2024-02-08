@@ -678,3 +678,187 @@ class FeedBack(keras.Model):
         predictions = tf.transpose(predictions, [1, 0, 2])
         
         return predictions
+
+
+class STATEFUL_LSTM(Prediction_Model):
+    def __init__(self, train_ds, val_ds,
+                 input_dropout=0.0,
+                 mixed_dropout_lstm=0.0,
+                 mixed_dropout_dense=0.0,
+                 lstm_layers=[32,32],
+                 dense_layers=[],
+                 l2_reg=0.0,
+                 lr_scheduler=[],
+                 seed=None):
+        super().__init__(seed)
+
+        # The input sizes need to match the dimensions of each dataset
+        self._train_model = self.create_model(train_ds, batch_size=train_ds._batch_size.numpy(), input_dropout=input_dropout, mixed_dropout_lstm=mixed_dropout_lstm,
+                     mixed_dropout_dense=mixed_dropout_dense,
+                     lstm_layers=lstm_layers, dense_layers=dense_layers, l2_reg=l2_reg,
+                     lr_scheduler=lr_scheduler)
+        
+        self._val_model = self.create_model(val_ds, batch_size=val_ds._batch_size.numpy(), input_dropout=input_dropout, mixed_dropout_lstm=mixed_dropout_lstm,
+                     mixed_dropout_dense=mixed_dropout_dense,
+                     lstm_layers=lstm_layers, dense_layers=dense_layers, l2_reg=l2_reg,
+                     lr_scheduler=lr_scheduler)
+        
+        self._pred_model = self.create_model(val_ds, batch_size=1, input_dropout=input_dropout, mixed_dropout_lstm=mixed_dropout_lstm,
+                     mixed_dropout_dense=mixed_dropout_dense,
+                     lstm_layers=lstm_layers, dense_layers=dense_layers, l2_reg=l2_reg,
+                     lr_scheduler=lr_scheduler)
+        
+    def save_weights(self, dir):
+        self._train_model.save_weights(dir)
+
+    def load_weights(self, dir):
+        self._train_model.load_weights(dir)
+        self._val_model.load_weights(dir)
+        self._pred_model.load_weights(dir)
+
+    def create_model(self, ds, batch_size, 
+                     input_dropout=0.0,
+                     mixed_dropout_lstm=0.0,
+                     mixed_dropout_dense=0.0,
+                     lstm_layers=[32,32], dense_layers=[], l2_reg=0.0, lr_scheduler=[], seed=None):
+        # determine input shape(s) and setup input layer(s)
+        in_shape_hist = ds.element_spec[0].shape.as_list()
+        in_shape_hist = in_shape_hist[1:] if in_shape_hist[0] is None else in_shape_hist # remove batch dimension
+        input_layer = layers.Input(shape=in_shape_hist, batch_size=batch_size, name="Inputs_History")
+
+        ### HISTORY LSTM STACK ##########
+        x = input_layer
+        if input_dropout > 0.0:
+            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+        for layer_id, layer_units in enumerate(lstm_layers):
+            x = layers.LSTM(layer_units, 
+                              return_sequences=(layer_id!=(len(lstm_layers)-1)),
+                              kernel_regularizer=regularizers.l2(l2_reg),
+                              stateful=True,
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              recurrent_initializer=self.createInitializer('orthogonal'),
+                              bias_initializer=self.createInitializer('zeros')
+                              )(x)
+            if mixed_dropout_lstm > 0.0:
+                x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
+        x = layers.Flatten()(x)
+        #################################
+
+        # DENSE LAYERS
+        for units in dense_layers:
+            x = layers.Dense(units=units,
+                               activation="relu",
+                               kernel_regularizer=regularizers.l2(l2_reg),
+                               kernel_initializer=self.createInitializer('glorot_uniform'),
+                               bias_initializer=self.createInitializer('zeros'))(x)
+            if mixed_dropout_dense > 0.0:
+                x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
+            
+        # OUTPUT LAYER
+        outputs = []
+        for out_idx, out_feature in enumerate(ds.element_spec[1]):
+            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
+            n_units = 16
+            if '_Location' in out_feature:
+                n_units = 1
+            elif '_Node' in out_feature:
+                n_units = 4
+            elif '_Type' in out_feature:
+                n_units = 4
+            
+            output = layers.Dense(units=n_units,
+                                activation='linear',
+                                kernel_regularizer=regularizers.l2(l2_reg),
+                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                bias_initializer=self.createInitializer('zeros'),
+                                name=out_feature)(x)
+            outputs.append(output)
+        
+        model = tf.keras.Model(inputs=input_layer, outputs=output)
+
+        optimizer=tf.keras.optimizers.Adam()
+        if lr_scheduler:
+            if len(lr_scheduler) == 2:
+                lr_scheduler = [0.001] + lr_scheduler # add learning rate
+            lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
+            optimizer=tf.keras.optimizers.Adam(lr_schedule)
+
+        model.compile(optimizer=optimizer, loss=[tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))], metrics=['mse', 'mae'])
+        return model
+
+    def summary(self):
+        self._train_model.summary()
+
+    def fit(self, train_ds, val_ds, epochs=100, eval_frequency=5, save_best_only=False, early_stopping=0, target_metric='val_mse', plot_hist=False, verbose=2):
+        
+        training_hist = {}
+        training_hist['loss'] = []
+        training_hist['mse'] = []
+        training_hist['epoch'] = []
+        if val_ds is not None:
+            training_hist['val_loss'] = []
+            training_hist['val_mse'] = []
+        best_weights = None
+        best_eval_epoch = 0
+        n_actual_epochs = 0
+        for epoch in range(epochs):
+            n_actual_epochs+=1
+            self._train_model.fit(train_ds, epochs=1, verbose=verbose, shuffle=False)
+            self._train_model.reset_states()
+            if epoch%eval_frequency==0:
+                train_loss, train_mse, train_mae = self._train_model.evaluate(train_ds, verbose=0)
+                self._train_model.reset_states()
+                if val_ds is not None:
+                    self._val_model.set_weights(self._train_model.get_weights())
+                    val_loss, val_mse, val_mae = self._val_model.evaluate(val_ds, verbose=0)
+                    self._val_model.reset_states()
+                new_best=False
+                if save_best_only and (len(training_hist[target_metric]) == 0 or val_mse < np.min(training_hist[target_metric])):
+                    new_best=True
+                    best_eval_epoch = epoch
+                    best_weights = self._train_model.get_weights()
+                training_hist['loss'].append(train_loss)
+                training_hist['mse'].append(train_mse)
+                training_hist['epoch'].append(epoch)
+                if val_ds is not None:
+                    training_hist['val_loss'].append(val_loss)
+                    training_hist['val_mse'].append(val_mse)
+                if verbose > 0:
+                    print(f"Epoch {epoch}/{epochs}: Train:[{train_loss:.4f}/{train_mse:.4f}]" +
+                        (f" Val:[{val_loss:.4f}/{val_mse:.4f}]" if val_ds is not None else "") + 
+                        " (loss/mse)" + 
+                        (" -> New best!" if new_best else ""))
+                if early_stopping > 0 and  (epoch > (best_eval_epoch + early_stopping)) and val_mse > np.min(training_hist[target_metric]):
+                    if verbose > 0:
+                        print(f"Val_mse did not improve since epoch {best_eval_epoch}, early-stopping")
+                        break
+        if save_best_only:
+            self._train_model.set_weights(best_weights)
+        self._val_model.set_weights(self._train_model.get_weights())
+        self._pred_model.set_weights(self._train_model.get_weights())
+
+        if verbose>0:
+            train_loss, train_mse, train_mae = self._train_model.evaluate(train_ds, verbose=verbose)
+            val_loss, val_mse, val_mae = self._val_model.evaluate(val_ds, verbose=verbose)
+            print(f"Finished Training after {n_actual_epochs} epochs. Final Metrics:\n" +
+                    f"Train:[{train_loss:.4f}/{train_mse:.4f}]" + 
+                    (f"Val:[{val_loss:.4f}/{val_mse:.4f}]" if val_ds is not None else "") + 
+                    "(loss/mse)")
+            
+        if plot_hist:
+            plot_keys = list(training_hist.keys())
+            plot_keys.remove('epoch')
+            print(plot_keys)
+            self.plot_hist(training_hist)
+
+        return training_hist
+
+    def predict(self, ds, verbose=1):
+        assert(self._pred_model is not None)
+        self._pred_model.reset_states()
+        return self._pred_model.predict(ds, verbose=verbose)
+    
+    def evaluate(self, ds, verbose=1):
+        assert(self._val_model is not None)
+        self._val_model.reset_states()
+        return self._val_model.predict(ds, verbose=verbose)

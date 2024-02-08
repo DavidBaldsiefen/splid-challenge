@@ -43,14 +43,15 @@ def parameter_sweep(config=None):
                                                 padding='none',
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
                                                 transform_features=config.ds_gen['transform_features'],
-                                                input_history_steps=config.ds_gen['input_history_steps'], 
-                                                input_future_steps=config.ds_gen['input_future_steps'], 
-                                                seed=69)
+                                                input_history_steps=config.ds_gen['input_history_steps'],
+                                                input_future_steps=config.ds_gen['input_future_steps'],
+                                                seed=181)
         print('Input Features: ', ew_input_features if direction=='EW' else ns_input_features)
         print('Trn-keys:', ds_gen.train_keys)
         print('Val-keys:', ds_gen.val_keys)
         
-        train_ds, val_ds = ds_gen.get_datasets(512, label_features=[f'{direction}_Node_Location_nb'],
+        train_ds, val_ds = ds_gen.get_datasets(512,
+                                               label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
                                                stride=config.ds_gen['stride'],
                                                keep_label_stride=config.ds_gen['keep_label_stride'])
@@ -72,7 +73,8 @@ def parameter_sweep(config=None):
         model.summary()
         
         # train
-        hist = model.fit(train_ds, val_ds=val_ds,
+        hist = model.fit(train_ds,
+                         val_ds=val_ds,
                          epochs=40,
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
@@ -84,7 +86,7 @@ def parameter_sweep(config=None):
         wandb.save(file_path)
 
         # perform final evaluation
-        n_batches = int(np.ceil(((config.ds_gen['input_history_steps'] + config.ds_gen['input_future_steps']) / config.ds_gen['input_stride']) / 30.0))
+        n_batches = int(np.ceil(((config.ds_gen['input_history_steps'] + config.ds_gen['input_future_steps']) / (config.ds_gen['input_stride'] + config.ds_gen['keep_label_stride'])) / 5.0))
         print(f"Running val-evaluation ({n_batches} batches):")
 
         preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
@@ -97,7 +99,7 @@ def parameter_sweep(config=None):
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
-                                            threshold=50.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 
@@ -125,7 +127,7 @@ def parameter_sweep(config=None):
                                 verbose=2)
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
-                                            threshold=50.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 
@@ -154,12 +156,12 @@ sweep_configuration = {
             "parameters" : {
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [8]},
-            "input_stride" : {"values": [4,2,1]},
+            "keep_label_stride" : {"values": [2,4,6,8]},
+            "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [True]},
             "transform_features" : {"values": [True]},
-            "input_history_steps" : {"values": [64,96]},
-            "input_future_steps" : {"values": [24,48]},
+            "input_history_steps" : {"values": [48]},
+            "input_future_steps" : {"values": [48,36,24]},
             }
         },
         "model" : {
