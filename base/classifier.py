@@ -1,9 +1,49 @@
 import numpy as np
 import pandas as pd
 
-# TODO: implement framework for non-majority method, i.e. normal predictor
+# Helper lambdas
+def get_x_from_xy(x,y):
+    return x
+def get_y_from_xy(x,y):
+    return y
+def get_x_from_xyz(x,y,z):
+    return x
+def get_y_from_xyz(x,y,z):
+    return y
+def get_z_from_xyz(x,y,z):
+    return z
 
-def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'], object_limit=None, only_nodes=False, verbose=1):
+def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type', 'NS_Type']):
+    import matplotlib.pyplot as plt
+    import tensorflow as tf
+    import seaborn as sns
+
+    preds = model.predict(ds_with_labels, verbose=0)
+
+
+    fig, axes = plt.subplots(nrows=1, ncols=len(output_names), figsize=(12,4))
+    plt.tight_layout()
+    for output_idx, output_name in enumerate(output_names):
+        labels = np.concatenate([element for element in ds_with_labels.map(lambda x,y,z: y[output_name]).as_numpy_iterator()])
+
+        ticklabels = [0,1,2,3]
+        if output_name == 'EW_Type' or output_name == 'NS_Type':
+            ticklabels = ds_gen.type_label_encoder.inverse_transform(ticklabels)
+        
+        confusion_mtx = tf.math.confusion_matrix(labels, np.argmax(preds[output_idx], axis=1))
+        sns.heatmap(confusion_mtx,
+                    xticklabels=ticklabels,
+                    yticklabels=ticklabels,
+                    annot=True, fmt='g', ax=axes[output_idx])
+        axes[output_idx].set_title(output_name)
+        axes[output_idx].set_xlabel('Prediction')
+        axes[output_idx].set_ylabel('Label')
+    fig.show()
+
+def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'],
+                         object_limit=None, only_nodes=False,
+                         confusion_matrix=False,
+                         verbose=1):
     
     train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
     val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
@@ -19,14 +59,17 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
 
     def get_x(x,y,z):
         return x
+    def get_y(x,y,z):
+        return y
     def get_z(x,y,z):
         return z
-    inputs = np.concatenate([element for element in ds.map(lambda x,z: x).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_x).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(lambda x,z: z).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z).as_numpy_iterator()])
+    
+    #inputs = np.concatenate([element for element in ds.map(lambda x,z: x).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_x).as_numpy_iterator()])
+    identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
     df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
     # get predictions
-    preds = model.predict(inputs, verbose=verbose)
+    preds = model.predict(ds, verbose=verbose)
 
     # Ordering of model_outputs MUST MATCH with actual outputs!
     for output_idx, output_name in enumerate(model_outputs):
@@ -41,6 +84,9 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
             df[[f'{output_name}_Node', f'{output_name}_Type']] = df[f'{output_name}'].str.split('-', expand=True)
 
     df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+
+    if confusion_matrix:
+        plot_confusion_matrix(ds_gen, ds, model, output_names=model_outputs)
 
     return df
 
