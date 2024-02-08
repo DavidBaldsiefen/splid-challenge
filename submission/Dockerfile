@@ -31,7 +31,7 @@ WORKDIR /app
 # COPY WARMUP DATA
 #ADD dataset/test/* /dataset/test/
 
-# COPY WHATEVER OTHER SCRIPTS YOU MAY NEED
+# COPY Scripts and Models
 COPY submission/models/ /models/
 
 COPY base/datahandler.py base/datahandler.py

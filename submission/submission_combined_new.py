@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
@@ -23,7 +23,7 @@ LOCALIZER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ns_loca
 SCALER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/NS_localizer_scaler_cnn.pkl')
 
 CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
-SCALER_CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
+SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
 TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test/')
 TEST_PREDS_FP = Path(('submission/' if DEBUG_MODE else '/') + 'submission/submission.csv')
@@ -156,6 +156,7 @@ if not DEBUG_MODE:
 else:
     print("Evaluating...")
     ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
+    results.to_csv('submission/submission/local_sub.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
     print(f'Precision: {precision:.2f}')
