@@ -18,7 +18,7 @@ input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RA
        'Longitude (deg)', 'Altitude (m)']
 
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
-ns_input_features = ['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
+ns_input_features = input_features[:-1]#['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
 direction='NS'
 
@@ -50,7 +50,7 @@ def parameter_sweep(config=None):
         print('Trn-keys:', ds_gen.train_keys)
         print('Val-keys:', ds_gen.val_keys)
         
-        train_ds, val_ds = ds_gen.get_datasets(512,
+        train_ds, val_ds = ds_gen.get_datasets(1024,
                                                label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
                                                stride=config.ds_gen['stride'],
@@ -156,27 +156,28 @@ sweep_configuration = {
             "parameters" : {
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [2,4,6,8]},
+            "keep_label_stride" : {"values": [5]},
             "input_stride" : {"values": [2]},
-            "per_object_scaling" : {"values" : [True]},
+            "per_object_scaling" : {"values" : [True, False]},
             "transform_features" : {"values": [True]},
             "input_history_steps" : {"values": [48]},
-            "input_future_steps" : {"values": [48,36,24]},
+            "input_future_steps" : {"values": [48]},
             }
         },
         "model" : {
             "parameters" : {
-            "conv1d_layers" : {"values": [
+            "conv1d_layers" : {"values": [[[32,12],[32,6],[32,3]],
                                           [[32,9],[32,6],[32,3]],
+                                          [[32,6],[64,6],[32,6]],
                                           ]},
             "dense_layers" : {"values": [[32,16]]},
-            "lstm_layers" : {"values": [[]]},
-            "l2_reg" : {"values": [0.0]},
+            "lstm_layers" : {"values": [[16,16], []]},
+            "l2_reg" : {"values": [0.0, 0.0001]},
             "input_dropout" : {"values": [0.0]},
-            "mixed_dropout_dense" : {"values": [0.25]},
-            "mixed_dropout_cnn" : {"values": [0.2]},
+            "mixed_dropout_dense" : {"values": [0.35]},
+            "mixed_dropout_cnn" : {"values": [0.25]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.003,7500,0.8]]},
+            "lr_scheduler" : {"values": [[0.003,2500,0.9]]},
             "seed" : {"values": [0]},
             }
         },

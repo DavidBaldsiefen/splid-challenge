@@ -68,24 +68,31 @@ class NodeDetectionEvaluator:
         total_fp = 0
         total_fn = 0
         total_distances = []
+        gt_objs = []
+        p_objs = []
         for object_id in self.ground_truth['ObjectID'].unique():
             _, _, _, gt_object, p_object = self.evaluate(object_id)
             
             total_tp += len(p_object[p_object['classification'] == 'TP'])
             total_fp += len(p_object[p_object['classification'] == 'FP'])
             total_fn += len(gt_object[gt_object['classification'] == 'FN'])
+            gt_objs.append(gt_object)
+            p_objs.append(p_object.loc[p_object['classification'] == 'FP'])
             total_distances.extend(
                 p_object[p_object['classification'] == 'TP']['distance'].tolist()
             )
         if ((total_tp + total_fp) < 1):
             print("Warning: No true AND false positives! Did you compare train results agaist val-ground_truth?")
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
         precision = total_tp / (total_tp + total_fp)
         recall = total_tp / (total_tp + total_fn)
         f2 = (5 * total_tp) / (5 * total_tp + 4 * total_fn + total_fp)
         rmse = np.sqrt((sum(d ** 2 for d in total_distances) / len(total_distances))) if total_distances else 0
 
-        return precision, recall, f2, rmse, total_tp, total_fp, total_fn
+        total_df = pd.concat(gt_objs+p_objs).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+
+        return precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df
 
 
     def plot(self, object_id):

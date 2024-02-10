@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -37,7 +37,7 @@ print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DI
 #-----------------------------------EW-------------------------------
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
                         'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-                        'Longitude (deg)', 'Altitude (m)']
+                        'Longitude (deg)']
 ew_localizer_scaler = pickle.load(open(SCALER_EW_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ew_input_features,
@@ -47,8 +47,8 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       padding='none',
                                       input_history_steps=48,
                                       input_future_steps=24,
-                                      per_object_scaling=True,
-                                      custom_scaler=None,
+                                      per_object_scaling=False,
+                                      custom_scaler=ew_localizer_scaler,
                                       seed=69)
 
 print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\" and scaler \"{SCALER_EW_DIR}\"")
@@ -64,14 +64,14 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             dirs=['EW'],
-                                            threshold=60.0,
+                                            threshold=50.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
 #-----------------------------------NS-------------------------------
 ns_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
                         'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-                        'Longitude (deg)', 'Altitude (m)']
+                        'Longitude (deg)']
 ns_localizer_scaler = pickle.load(open(SCALER_NS_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_features=ns_input_features,
@@ -80,14 +80,13 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_stride=2,
                                       padding='none',
                                       input_history_steps=48,
-                                      input_future_steps=24,
-                                      per_object_scaling=True,
-                                      custom_scaler=None,
+                                      input_future_steps=48,
+                                      per_object_scaling=False,
+                                      custom_scaler=ns_localizer_scaler,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
 ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR)
-
 ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=ns_localizer,
                                 train=False,
@@ -133,6 +132,7 @@ pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 only_nodes=False,
                                 model_outputs=['EW_Type', 'NS_Type'],
                                 object_limit=None,
+                                prediction_batches=3,
                                 verbose=2)
 
 #majority_df = classifier.apply_majority_method(preds_df=pred_df, location_df=df_locs)
@@ -158,7 +158,7 @@ else:
     ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
     results.to_csv('submission/submission/local_sub.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
-    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
     print(f'F2: {f2:.2f}')

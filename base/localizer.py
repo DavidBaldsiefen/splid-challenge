@@ -21,6 +21,7 @@ def create_prediction_df(ds_gen,
                          train=False,
                          test=False,
                          output_dirs=['EW', 'NS'],
+                         only_ew_sk=False, 
                          object_limit=None,
                          prediction_batches=1,
                          ds_batch_size=256,
@@ -48,12 +49,12 @@ def create_prediction_df(ds_gen,
                                             label_features=[],
                                             shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                             with_identifier=True,
+                                            only_ew_sk=only_ew_sk,
                                             train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
                                             val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
                                             stride=1)
             ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
-            #inputs = np.concatenate([element for element in ds.map(get_x_from_xy).as_numpy_iterator()])
             identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
             # get predictions
@@ -117,8 +118,7 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
     
     labels = np.concatenate([element for element in ds.map(lambda x,y,z: y[label_features[0]]).as_numpy_iterator()])
     identifiers = np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
-    inputs = np.concatenate([element for element in ds.map(get_x_from_xyz).as_numpy_iterator()])
-    preds = model.predict(inputs, verbose=2).astype(np.int32) # we dont need float precision
+    preds = model.predict(ds, verbose=2).astype(np.int32) # we dont need float precision
     df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds])
 
     df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + ['Preds'], dtype=np.int32)
@@ -206,7 +206,7 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
 
     # Initiate evaluator
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True)
-    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
 
     if verbose>0:
         print(f'Precision: {precision:.2f}')

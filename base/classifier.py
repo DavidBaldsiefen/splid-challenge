@@ -49,37 +49,45 @@ def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type'
 def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'],
                          object_limit=None, only_nodes=False,
                          confusion_matrix=False,
+                         prediction_batches=1,
                          verbose=1):
     
-    train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
-    val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
-    datasets = ds_gen.get_datasets(batch_size=512,
-                                     label_features=[] if test else model_outputs,
-                                     shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
-                                     with_identifier=True,
-                                     train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
-                                     val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
-                                     only_nodes=only_nodes,
-                                     stride=1)
-    ds = (datasets[0] if train else datasets[1]) if not test else datasets
-
-    def get_x(x,y,z):
-        return x
-    def get_y(x,y,z):
-        return y
-    def get_z(x,y,z):
-        return z
+    all_identifiers = []
+    all_predictions = []
     
-    #inputs = np.concatenate([element for element in ds.map(lambda x,z: x).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_x).as_numpy_iterator()])
-    identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
-    df = pd.DataFrame(np.concatenate([identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
+    all_train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
+    train_batch_size = int(np.ceil(len(all_train_keys)/prediction_batches))
+    all_val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
+    val_batch_size = int(np.ceil(len(all_val_keys)/prediction_batches))
+    for batch_idx in range(prediction_batches):
+        train_keys = all_train_keys[batch_idx*train_batch_size:batch_idx*train_batch_size+train_batch_size]
+        val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
+        datasets = ds_gen.get_datasets(batch_size=512,
+                                        label_features=[] if test else model_outputs,
+                                        shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+                                        with_identifier=True,
+                                        train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
+                                        val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
+                                        only_nodes=only_nodes,
+                                        stride=1)
+        ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
-    # get predictions
-    preds = model.predict(ds, verbose=verbose)
+        identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
+
+        # get predictions
+        preds = np.asarray(model.predict(ds, verbose=verbose)) # TODO: may fail if single-class pred
+
+        all_identifiers.append(identifiers)
+        all_predictions.append(preds)
+
+    all_identifiers = np.concatenate(all_identifiers)
+    all_predictions = np.concatenate(all_predictions, axis=1)
+
+    df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
     # Ordering of model_outputs MUST MATCH with actual outputs!
     for output_idx, output_name in enumerate(model_outputs):
-        preds_argmax = np.argmax(preds[output_idx] if len(model_outputs) > 1 else preds, axis=1)
+        preds_argmax = np.argmax(all_predictions[output_idx] if len(model_outputs) > 1 else all_predictions, axis=1)
         df[f'{output_name}_Pred'] = preds_argmax
         if output_name == 'EW_Node' or output_name == 'NS_Node':
             df[f'{output_name}'] = ds_gen.node_label_encoder.inverse_transform(df[f'{output_name}_Pred'])

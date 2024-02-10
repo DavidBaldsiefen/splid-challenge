@@ -103,6 +103,7 @@ class DatasetGenerator():
                  scale=True,
                  per_object_scaling=False,
                  custom_scaler=None,
+                 node_class_multipliers={},
                  verbose=1):
 
         split_df = copy.deepcopy(split_df) # TODO: maybe this eats up loads of memory or sth?
@@ -131,6 +132,8 @@ class DatasetGenerator():
             print(f"Padding: {self._padding}")
             print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
             print(f"Horizons: {self._input_history_steps}-{self._input_future_steps} @ stride {self._input_stride}")
+            if node_class_multipliers:
+                print(f"Node Class Multipliers: {node_class_multipliers}")
 
         # Make sure all val labels are also in train
         train_labels_EW, train_labels_NS, val_labels_EW, val_labels_NS = [], [], [], []
@@ -184,16 +187,17 @@ class DatasetGenerator():
             if verbose > 0:
                 print(f"Padding node locations in non-binary fashion ({pad_extended})")
             for key, sub_df in split_df.items():
-                sub_df['EW_Node_Location_nb'] = sub_df['EW_Node_Location'].astype(np.float32)
-                sub_df['NS_Node_Location_nb'] = sub_df['NS_Node_Location'].astype(np.float32)
-                timeindices = sub_df.loc[(sub_df['EW_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
-                for timeindex in timeindices:
-                    #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
-                    sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'] = pad_extended
-                    #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
-                timeindices = sub_df.loc[(sub_df['NS_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
-                for timeindex in timeindices:
-                    sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'NS_Node_Location_nb'] = pad_extended
+                for dir in ['EW', 'NS']:
+                    sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
+                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                    for timeindex in timeindices:
+                        node = sub_df.loc[timeindex, f'{dir}_Node']
+                        scaling_factor = 1.0
+                        if node_class_multipliers:
+                            scaling_factor = node_class_multipliers[node]
+                        #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
+                        sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended)*scaling_factor
+                        #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
 
         # encode labels
         possible_node_labels = ['SS', 'ID', 'AD', 'IK']
@@ -219,8 +223,18 @@ class DatasetGenerator():
         if verbose > 0:
             print(f"=========================Finished Generator=======================")
 
-    def create_ds_from_dataframes(self, split_df, keys, input_features, label_features,
-                                  only_nodes, with_identifier, input_history_steps, input_future_steps, stride, keep_label_stride,
+    def create_ds_from_dataframes(self,
+                                  split_df,
+                                  keys,
+                                  input_features,
+                                  label_features,
+                                  only_nodes,
+                                  only_ew_sk,
+                                  with_identifier,
+                                  input_history_steps,
+                                  input_future_steps,
+                                  stride,
+                                  keep_label_stride,
                                   input_stride,
                                   padding):
 
@@ -231,7 +245,7 @@ class DatasetGenerator():
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
-        node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
+        ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
         current_row = 0
         keys.sort()
@@ -261,12 +275,22 @@ class DatasetGenerator():
                 labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)[::stride]
             if only_nodes:
                 node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
+            if only_ew_sk:
+                ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
             current_row+=strided_obj_len
 
             del extended_df # try to preserve some memory
         gc.collect() # try to preserve some memory
 
+        if only_ew_sk:
+            # keep all fields where EW is stationkeeping
+            ew_nk_label = self._type_label_encoder.transform(['NK'])[0]
+            ew_sk_fields = np.argwhere(ew_sk_markers != ew_nk_label)[:,0]
+            inputs = inputs[ew_sk_fields]
+            labels = labels[ew_sk_fields]
+            element_identifiers = element_identifiers[ew_sk_fields]
+            
         # if wanted, only preserve items with nodes
         if only_nodes:
             # identify which direction we want
@@ -418,7 +442,7 @@ class DatasetGenerator():
         return datasets if len(datasets)>1 else datasets[0]
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], 
-                     with_identifier=False, only_nodes=False, shuffle=True,
+                     with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
                      train_keys=None, val_keys=None, stride=1, keep_label_stride=1):
         
         # create datasets
@@ -429,6 +453,7 @@ class DatasetGenerator():
                                                 input_features=self._input_features,
                                                 label_features=label_features,
                                                 only_nodes=only_nodes,
+                                                only_ew_sk=only_ew_sk,
                                                 with_identifier=with_identifier,
                                                 input_history_steps=self._input_history_steps,
                                                 input_future_steps=self._input_future_steps,
@@ -443,6 +468,7 @@ class DatasetGenerator():
                                                     input_features=self._input_features,
                                                     label_features=label_features,
                                                     only_nodes=only_nodes,
+                                                    only_ew_sk=only_ew_sk,
                                                     with_identifier=with_identifier,
                                                     input_history_steps=self._input_history_steps,
                                                     input_future_steps=self._input_future_steps,
