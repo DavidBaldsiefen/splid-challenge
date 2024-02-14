@@ -5,6 +5,7 @@ from tensorflow.data import Dataset
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from pathlib import Path
 from tqdm import tqdm
+from datetime import datetime, timezone
 import copy
 import gc
 
@@ -34,8 +35,8 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
             object_labels = labels.loc[labels['ObjectID'] == object_id]
 
             # Separate the 'EW' and 'NS' types in the ground truth
-            object_labels_EW = object_labels[object_labels['Direction'] == 'EW'].copy()
-            object_labels_NS = object_labels[object_labels['Direction'] == 'NS'].copy()
+            object_labels_EW = object_labels[object_labels['Direction'] == 'EW'].copy(deep=False)
+            object_labels_NS = object_labels[object_labels['Direction'] == 'NS'].copy(deep=False)
             
             # Create 'EW' and 'NS' labels
             # TODO: "ES"-rows are just dropped here
@@ -80,6 +81,12 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
 
         object_dataframes[str(object_id)] = object_df
 
+    del data_files
+    del object_labels_EW
+    del object_labels_NS
+
+    gc.collect()
+
     return object_dataframes
 
 # now we need to create the datasets using a sliding window approach
@@ -97,6 +104,7 @@ class DatasetGenerator():
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
                  transform_features=True, # wether to apply sin to certain features
+                 add_daytime_feature=False,
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
@@ -104,9 +112,10 @@ class DatasetGenerator():
                  per_object_scaling=False,
                  custom_scaler=None,
                  node_class_multipliers={},
-                 verbose=1):
+                 verbose=1,
+                 deepcopy=True):
 
-        split_df = copy.deepcopy(split_df) # TODO: maybe this eats up loads of memory or sth?
+        split_df = copy.deepcopy(split_df) if deepcopy else split_df # TODO: maybe this eats up loads of memory or sth?
 
         self._input_features=input_features
         self._with_labels=with_labels
@@ -145,26 +154,41 @@ class DatasetGenerator():
         if not (all(x in set(train_labels_EW) for x in set(val_labels_EW)) and all(x in set(train_labels_NS) for x in set(val_labels_NS))):
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
         
-        # Run sin over deg fields, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
-        # TODO: this may also be necessary for longitude
-        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)', 'Longitude (deg)'] if transform_features else []
-        
-        for ft in features_to_transform:
-            if ft in self._input_features:
-                newft_sin = ft[:-5] + '(sin)'
-                newft_cos = ft[:-5] + '(cos)'
-                for key in self._train_keys + self._val_keys:
-                    split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
-                    split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
-                self._input_features.remove(ft)
-                self._input_features.append(newft_sin)
-                self._input_features.append(newft_cos)
-                #split_df[key].drop(columns=[ft])
-        if transform_features and verbose > 0:
-            print(f"Sin-Cos-Transformed features: {[ft for ft in features_to_transform if ft in input_features]}")
+        # Run sin+cos over deg fields, to bring 0deg and 360deg next to each other
+        # TODO: add RAAN?
+        if transform_features:
+            features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)', 'Longitude (deg)']
+            if verbose > 0:
+                print(f"Sin-Cos-Transforming features: {[ft for ft in features_to_transform if ft in self._input_features]}")
+            for ft in features_to_transform:
+                if ft in self._input_features:
+                    newft_sin = ft[:-5] + '(sin)'
+                    newft_cos = ft[:-5] + '(cos)'
+                    for key in self._train_keys + self._val_keys:
+                        split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
+                        split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
+                        split_df[key].drop(columns=[ft], inplace=True)
+                    self._input_features.remove(ft)
+                    self._input_features.append(newft_sin)
+                    self._input_features.append(newft_cos)
+                    
+        if add_daytime_feature:
+            if verbose>0:
+                print("Adding daytime features.")
+            for key in self._train_keys + self._val_keys:
+                split_df[key]['Datetime'] = pd.to_datetime(split_df[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
+                split_df[key]['Epoch'] = (split_df[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
+                siderial_day = 86164 # seconds in a sidereal day
+                split_df[key]['Epoch Day (sin)'] = np.sin((2*np.pi*split_df[key]['Epoch'])/siderial_day)
+                split_df[key]['Epoch Day (cos)'] = np.sin((2*np.pi*split_df[key]['Epoch'])/siderial_day)
+                split_df[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
+            self._input_features.append('Epoch Day (sin)')
+            self._input_features.append('Epoch Day (cos)')
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
+            if verbose>1:
+                print("Scaling now.")
             if per_object_scaling:
                 for key in self._train_keys + self._val_keys:
                     split_df[key][self._input_features] = StandardScaler().fit_transform(split_df[key][self._input_features].values)
@@ -180,15 +204,17 @@ class DatasetGenerator():
             if verbose > 0:
                 print(f"Padding node locations ({pad_location_labels})")
             for key, sub_df in split_df.items():
-                timeindices = sub_df.loc[(sub_df['EW_Node_Location'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                timeindices = sub_df.loc[(sub_df['EW_Node_Location'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
                 for timeindex in timeindices:
                     # TODO: Using timeindex as index? this correct???
                     sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'EW_Node_Location'] = True
-                timeindices = sub_df.loc[(sub_df['NS_Node_Location'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                timeindices = sub_df.loc[(sub_df['NS_Node_Location'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
                 for timeindex in timeindices:
                     sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'NS_Node_Location'] = True
 
         if nonbinary_padding:
+            if verbose>1:
+                print("Adding nb padding now.")
             pad_extended  = nonbinary_padding[::-1] + nonbinary_padding[1:]
             pad_len = len(nonbinary_padding)-1
             if verbose > 0:
@@ -196,7 +222,7 @@ class DatasetGenerator():
             for key, sub_df in split_df.items():
                 for dir in ['EW', 'NS']:
                     sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
-                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1)]['TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
                     for timeindex in timeindices:
                         node = sub_df.loc[timeindex, f'{dir}_Node']
                         scaling_factor = 1.0
@@ -207,6 +233,8 @@ class DatasetGenerator():
                         #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
 
         # encode labels
+        if verbose>1:
+            print("Fitting Labelencoders now.")
         possible_node_labels = ['SS', 'ID', 'AD', 'IK']
         possible_type_labels = ['NK', 'CK', 'EK', 'HK']
         possible_combined_labels = [node_label + '-' + type_label for node_label in possible_node_labels for type_label in possible_type_labels]
@@ -224,8 +252,15 @@ class DatasetGenerator():
         else:
             if verbose > 0:
                 print("No Labels")
-        
-        self._preprocessed_dataframes = split_df
+
+        # Drop all of the columns we dont need to preserve memory
+        columns_to_keep = ['ObjectID', 'TimeIndex'] + self._input_features + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
+                                                   'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location',] if with_labels else [])
+        columns_to_remove = [item for item in split_df[self._train_keys[0]].columns if item not in columns_to_keep]
+        if verbose>1:
+                print(f"Dropping {len(columns_to_remove)} unused columns now.")
+        self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in split_df.items()}
+        split_df = None #remove reference to possibly save memory
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
         if verbose > 0:
@@ -261,8 +296,9 @@ class DatasetGenerator():
         current_row = 0
         keys.sort()
         for key in keys:
-            extended_df = split_df[key].copy()
+            extended_df = split_df[key]
             if padding != 'none':
+                extended_df = split_df[key].copy()
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
                 # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
                 nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)

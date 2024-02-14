@@ -145,11 +145,16 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
 
     
 
-def postprocess_predictions(preds_df, dirs=['EW', 'NS'], threshold=50.0, add_initial_node=False, clean_consecutives=True):
+def postprocess_predictions(preds_df,
+                            dirs=['EW', 'NS'],
+                            threshold=50.0,
+                            add_initial_node=False,
+                            clean_consecutives=True,
+                            deepcopy=True):
     """Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
     """
 
-    df = preds_df.copy()
+    df = preds_df.copy(deep=deepcopy)
     object_ids = df['ObjectID'].unique()
     df['Any_Loc'] = False
     # apply threshold
@@ -177,7 +182,7 @@ def postprocess_predictions(preds_df, dirs=['EW', 'NS'], threshold=50.0, add_ini
     # bring it all into the submission format
     sub_dfs = []
     for dir in dirs:
-        sub_df = df.loc[df[f'{dir}_Loc'] == True].copy()
+        sub_df = df.loc[df[f'{dir}_Loc'] == True]
         sub_df['Direction'] = dir
         sub_dfs.append(sub_df)
     df = pd.concat(sub_dfs)
