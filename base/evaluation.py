@@ -222,7 +222,7 @@ def run_evaluator(ground_truth_path=None, participant_path=None, plot_object=Non
 
     # Create a NodeDetectionEvaluator instance
     evaluator = NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=participant_df, tolerance=6)
-    precision, recall, f2, rmse, total_tp, total_fp, total_fn = evaluator.score()
+    precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
     print(f'F2: {f2:.2f}')

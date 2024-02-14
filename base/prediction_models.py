@@ -193,7 +193,7 @@ class Dense_NN(Prediction_Model):
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
-            if mixed_batchnorm > 0.0:
+            if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_cnn > 0.0:
@@ -208,7 +208,7 @@ class Dense_NN(Prediction_Model):
                               recurrent_initializer=self.createInitializer('orthogonal'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
-            if mixed_batchnorm > 0.0:
+            if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
             if mixed_dropout_lstm > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
@@ -265,6 +265,7 @@ class Dense_NN_regression(Prediction_Model):
                  mixed_dropout_dense=0.0,
                  mixed_dropout_cnn=0.0,
                  mixed_dropout_lstm=0.0,
+                 mixed_batchnorm=False,
                  conv1d_layers=[],
                  dense_layers=[32,32],
                  lstm_layers=[],
@@ -291,6 +292,8 @@ class Dense_NN_regression(Prediction_Model):
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
+            if mixed_batchnorm:
+                x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_cnn > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
@@ -691,6 +694,7 @@ class STATEFUL_LSTM(Prediction_Model):
                  lr_scheduler=[],
                  seed=None):
         super().__init__(seed)
+
 
         # The input sizes need to match the dimensions of each dataset
         self._train_model = self.create_model(train_ds, batch_size=train_ds._batch_size.numpy(), input_dropout=input_dropout, mixed_dropout_lstm=mixed_dropout_lstm,

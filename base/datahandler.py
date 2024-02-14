@@ -110,7 +110,6 @@ class DatasetGenerator():
 
         self._input_features=input_features
         self._with_labels=with_labels
-        self._input_feature_indices = {name:i for i, name in enumerate(input_features)}
         self._input_history_steps = input_history_steps
         self._input_future_steps = input_future_steps
         self._input_stride = input_stride
@@ -130,8 +129,8 @@ class DatasetGenerator():
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {self._padding}")
-            print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
             print(f"Horizons: {self._input_history_steps}-{self._input_future_steps} @ stride {self._input_stride}")
+            print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
             if node_class_multipliers:
                 print(f"Node Class Multipliers: {node_class_multipliers}")
 
@@ -148,25 +147,33 @@ class DatasetGenerator():
         
         # Run sin over deg fields, to bring 0deg and 360deg next to each other (technically it would make sense to change the description, but oh my)
         # TODO: this may also be necessary for longitude
-        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)'] if transform_features else []
-        for key in self._train_keys + self._val_keys:
-            for ft in features_to_transform:
-                if ft in input_features:
-                    split_df[key][ft] = np.sin(np.deg2rad(split_df[key][ft]))
+        features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)', 'Longitude (deg)'] if transform_features else []
+        
+        for ft in features_to_transform:
+            if ft in self._input_features:
+                newft_sin = ft[:-5] + '(sin)'
+                newft_cos = ft[:-5] + '(cos)'
+                for key in self._train_keys + self._val_keys:
+                    split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
+                    split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
+                self._input_features.remove(ft)
+                self._input_features.append(newft_sin)
+                self._input_features.append(newft_cos)
+                #split_df[key].drop(columns=[ft])
         if transform_features and verbose > 0:
-            print(f"Sin-Transformed features: {[ft for ft in features_to_transform if ft in input_features]}")
+            print(f"Sin-Cos-Transformed features: {[ft for ft in features_to_transform if ft in input_features]}")
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
             if per_object_scaling:
                 for key in self._train_keys + self._val_keys:
-                    split_df[key][input_features] = StandardScaler().fit_transform(split_df[key][input_features].values)
+                    split_df[key][self._input_features] = StandardScaler().fit_transform(split_df[key][self._input_features].values)
             else:
                 concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
-                scaler = StandardScaler().fit(concatenated_train_df[input_features].values) if custom_scaler is None else custom_scaler
+                scaler = StandardScaler().fit(concatenated_train_df[self._input_features].values) if custom_scaler is None else custom_scaler
                 self._scaler = scaler
                 for key in self._train_keys + self._val_keys:
-                    split_df[key][input_features] = scaler.transform(split_df[key][input_features].values)
+                    split_df[key][self._input_features] = scaler.transform(split_df[key][self._input_features].values)
 
         # pad the location labels, making them "wider"
         if pad_location_labels>0 and with_labels:
@@ -196,7 +203,7 @@ class DatasetGenerator():
                         if node_class_multipliers:
                             scaling_factor = node_class_multipliers[node]
                         #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
-                        sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended)*scaling_factor
+                        sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended, dtype=np.float32)*scaling_factor
                         #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
 
         # encode labels
@@ -219,6 +226,10 @@ class DatasetGenerator():
                 print("No Labels")
         
         self._preprocessed_dataframes = split_df
+
+        self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
+        if verbose > 0:
+            print(f"Final input features: {self._input_features}")
   
         if verbose > 0:
             print(f"=========================Finished Generator=======================")

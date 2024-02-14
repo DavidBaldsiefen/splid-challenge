@@ -8,17 +8,17 @@ import gc
 from base import datahandler, prediction_models, evaluation, utils, localizer
 
 # Load data
-challenge_data_dir = Path('dataset/phase_1_v2_custom/')
+challenge_data_dir = Path('dataset/phase_1_v2/')
 data_dir = challenge_data_dir / "train"
 labels_dir = challenge_data_dir / 'train_labels.csv'
 split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
 input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
        'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-       'Longitude (deg)', 'Altitude (m)']
+       'Longitude (deg)']
 
-ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
-ns_input_features = input_features[:-1]#['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
+ew_input_features = input_features#['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
+ns_input_features = input_features#['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
 direction='NS'
 
