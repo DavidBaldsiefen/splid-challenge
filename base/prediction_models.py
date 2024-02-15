@@ -12,7 +12,7 @@ class Prediction_Model():
         self._rnd_gen = np.random.default_rng(self._seed)
 
     def compile(self, optimizer=keras.optimizers.legacy.Adam(), loss_fn=keras.losses.MeanSquaredError(), metrics=['mse']):
-        # TODO: try RMSprop?
+        # TODO: try RMSprop? in general, different optimizers
         assert(self._model is not None)
         self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics)
 
@@ -300,13 +300,16 @@ class Dense_NN_regression(Prediction_Model):
 
         for layer_id, units in enumerate(lstm_layers):
             x = layers.LSTM(units, 
-                            activation='tanh',
+                            activation='tanh', # changing this will lead to strong performance declines
                               return_sequences=(layer_id!=(len(lstm_layers)-1)),
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               recurrent_initializer=self.createInitializer('orthogonal'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
+            if mixed_batchnorm:
+                x = layers.BatchNormalization()(x)
+            #x = layers.Activation('tanh')(x)
             if mixed_dropout_lstm > 0.0:
                 x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 

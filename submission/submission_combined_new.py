@@ -15,7 +15,6 @@ if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-# TODO: move if/else into the Path
 LOCALIZER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_localizer_cnn.hdf5')
 SCALER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/EW_localizer_scaler_cnn.pkl')
 
@@ -33,7 +32,6 @@ split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels
 print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DIR}\". Creating dataset")
 
 # =================================LOCALIZATION==========================================
-# TODO: add some safeguard in case there are too many detections in one object
 #-----------------------------------EW-------------------------------
 ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
                         'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
