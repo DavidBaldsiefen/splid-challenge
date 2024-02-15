@@ -197,7 +197,7 @@ class Dense_NN(Prediction_Model):
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_cnn > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
         for layer_id, units in enumerate(lstm_layers):
             x = layers.LSTM(units, 
@@ -211,7 +211,7 @@ class Dense_NN(Prediction_Model):
             if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
             if mixed_dropout_lstm > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
 
         x = layers.Flatten()(x)
         for units in dense_layers:
@@ -222,7 +222,7 @@ class Dense_NN(Prediction_Model):
                                bias_initializer=self.createInitializer('zeros'))(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_dense > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
         outputs = []
         binary_output = False
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
@@ -296,7 +296,7 @@ class Dense_NN_regression(Prediction_Model):
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
             if mixed_dropout_cnn > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
         for layer_id, units in enumerate(lstm_layers):
             x = layers.LSTM(units, 
@@ -311,7 +311,7 @@ class Dense_NN_regression(Prediction_Model):
                 x = layers.BatchNormalization()(x)
             #x = layers.Activation('tanh')(x)
             if mixed_dropout_lstm > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
 
         x = layers.Flatten()(x)
         
@@ -322,7 +322,7 @@ class Dense_NN_regression(Prediction_Model):
                                kernel_initializer=self.createInitializer('glorot_uniform'),
                                bias_initializer=self.createInitializer('zeros'))(x)
             if mixed_dropout_dense > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
+                x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
         outputs = []
         binary_output = False
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
