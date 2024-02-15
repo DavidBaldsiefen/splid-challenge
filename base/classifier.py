@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import gc
 
 # Helper lambdas
 def get_x_from_xy(x,y):
@@ -80,6 +81,10 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
         all_identifiers.append(identifiers)
         all_predictions.append(preds)
 
+        del ds
+        del datasets
+    gc.collect()
+
     all_identifiers = np.concatenate(all_identifiers)
     all_predictions = np.concatenate(all_predictions, axis=1)
 
@@ -100,6 +105,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
     df = df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
     if confusion_matrix:
+        # TODO: make this work for batched ds!
         plot_confusion_matrix(ds_gen, ds, model, output_names=model_outputs)
 
     return df

@@ -171,11 +171,21 @@ class Linear_NN(Prediction_Model):
         self.compile()
 
 class Dense_NN(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout_dense=0.0, mixed_dropout_cnn=0.0, mixed_dropout_lstm=0.0, mixed_batchnorm=False,
-                 conv1d_layers=[], lstm_layers=[], dense_layers=[32,32],
-                 l2_reg=0.0, lr_scheduler=[], seed=None):
+    def __init__(self, ds,
+                 input_dropout=0.0,
+                 mixed_dropout_dense=0.0,
+                 mixed_dropout_cnn=0.0,
+                 mixed_dropout_lstm=0.0,
+                 mixed_batchnorm=False,
+                 conv1d_layers=[],
+                 lstm_layers=[],
+                 dense_layers=[32,32],
+                 l2_reg=0.0,
+                 lr_scheduler=[],
+                 seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
+        # TODO: merge with dense_nn_regression class
 
         # determine input shape
         in_shape = ds.element_spec[0].shape.as_list()
@@ -245,19 +255,21 @@ class Dense_NN(Prediction_Model):
             outputs.append(output)
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
+        # create optimizer
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:
             if len(lr_scheduler) == 2:
                 lr_scheduler = [0.001] + lr_scheduler # add learning rate
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
-        if binary_output:
-            self.compile(optimizer=optimizer, loss_fn=[tf.losses.BinaryCrossentropy()], metrics=[tf.keras.metrics.BinaryAccuracy(),
-                                                                                                tf.keras.metrics.Precision(),
-                                                                                                tf.keras.metrics.Recall()
-                                                                                                ])
-        else:
-            self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
+
+        # create losses and metrics
+        loss_functions = [tf.losses.BinaryCrossentropy()] if binary_output else (
+                         [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))])
+        metrics = [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()] if binary_output else (
+                  ['accuracy'])
+
+        self.compile(optimizer=optimizer, loss_fn=loss_functions, metrics=metrics)
 
 class Dense_NN_regression(Prediction_Model):
     def __init__(self, ds,
@@ -345,12 +357,16 @@ class Dense_NN_regression(Prediction_Model):
             outputs.append(output)
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
+        # create optimizer
         optimizer=keras.optimizers.Adam()
         if lr_scheduler:
             if len(lr_scheduler) == 2:
                 lr_scheduler = [0.001] + lr_scheduler # add learning rate
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
+
+        # create losses and metrics
+        loss_functions = []
         self.compile(optimizer=optimizer, loss_fn=[tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))], metrics=['mse', 'mae'])
 
 

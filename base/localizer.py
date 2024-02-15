@@ -88,6 +88,7 @@ def create_prediction_df(ds_gen,
                 all_predictions.append(preds)
 
         del ds
+        del datasets
         gc.collect()
 
     # now create df by concatenating all the individual lists

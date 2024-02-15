@@ -46,6 +46,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_history_steps=48,
                                       input_future_steps=24,
                                       per_object_scaling=False,
+                                      transform_features=True,
                                       custom_scaler=ew_localizer_scaler,
                                       seed=69)
 
@@ -57,12 +58,12 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['EW'],
-                                prediction_batches=3,
+                                prediction_batches=5,
                                 verbose=2)
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             dirs=['EW'],
-                                            threshold=50.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -80,6 +81,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_history_steps=48,
                                       input_future_steps=48,
                                       per_object_scaling=False,
+                                      transform_features=False,
                                       custom_scaler=ns_localizer_scaler,
                                       seed=69)
 
@@ -90,12 +92,12 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['NS'],
-                                prediction_batches=3,
+                                prediction_batches=5,
                                 verbose=2)
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=60.0,
+                                            threshold=70.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -119,6 +121,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_history_steps=1,
                                       input_future_steps=128,
                                       custom_scaler=classifier_scaler,
+                                      transform_features=False,
                                       seed=69)
 print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
 classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR)
@@ -130,7 +133,7 @@ pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 only_nodes=False,
                                 model_outputs=['EW_Type', 'NS_Type'],
                                 object_limit=None,
-                                prediction_batches=3,
+                                prediction_batches=5,
                                 verbose=2)
 
 #majority_df = classifier.apply_majority_method(preds_df=pred_df, location_df=df_locs)
@@ -154,7 +157,7 @@ if not DEBUG_MODE:
 else:
     print("Evaluating...")
     ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
-    results.to_csv('submission/submission/local_sub.csv', index=False)
+    #results.to_csv('submission/submission/local_sub.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')

@@ -82,8 +82,9 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
         object_dataframes[str(object_id)] = object_df
 
     del data_files
-    del object_labels_EW
-    del object_labels_NS
+    if labels_dir is not None:
+        del object_labels_EW
+        del object_labels_NS
 
     gc.collect()
 
@@ -91,7 +92,6 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
 
 # now we need to create the datasets using a sliding window approach
 # each window contains the input features over the last n feature steps, and tries to predict the current label (either EW or NS)
-# TODO: enable use of individual label features - such as Node and Type Label
 class DatasetGenerator():
     def __init__(self,
                  split_df,
