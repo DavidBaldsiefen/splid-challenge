@@ -97,13 +97,15 @@ class DatasetGenerator():
                  split_df,
                  input_history_steps=10, # how many history timesteps we get as input, including the current one
                  input_future_steps=0, # how many future timesteps we get as input
-                 input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "Mean Anomaly (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
+                 input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
-                 transform_features=True, # wether to apply sin to certain features
+                 sin_transform_features=['Longitude (deg)', 'Argument of Periapsis (deg)', 'RAAN (deg)'],
+                 sin_cos_transform_features=['True Anomaly (deg)'],
+                 keep_transformed_originals=True,
                  add_daytime_feature=False,
                  shuffle_train_val=True,
                  seed=42,
@@ -112,6 +114,7 @@ class DatasetGenerator():
                  per_object_scaling=False,
                  custom_scaler=None,
                  node_class_multipliers={},
+                 input_dtype=np.float32,
                  verbose=1,
                  deepcopy=True):
 
@@ -122,6 +125,7 @@ class DatasetGenerator():
         self._input_history_steps = input_history_steps
         self._input_future_steps = input_future_steps
         self._input_stride = input_stride
+        self._input_dtype = input_dtype
         self._padding = padding
         self._seed = seed
 
@@ -155,23 +159,27 @@ class DatasetGenerator():
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
         
         # Run sin+cos over deg fields, to bring 0deg and 360deg next to each other
-        # TODO: add RAAN?
-        if transform_features:
-            features_to_transform = ['Mean Anomaly (deg)', 'True Anomaly (deg)', 'Argument of Periapsis (deg)', 'Longitude (deg)']
+        if sin_transform_features or sin_cos_transform_features:
             if verbose > 0:
-                print(f"Sin-Cos-Transforming features: {[ft for ft in features_to_transform if ft in self._input_features]}")
-            for ft in features_to_transform:
+                print(f"Sin-Transforming features: {[ft for ft in sin_transform_features if ft in self._input_features]}")
+                print(f"Sin-Cos-Transforming features: {[ft for ft in sin_cos_transform_features if ft in self._input_features]}")
+                print(f"Keeping original fetures: {keep_transformed_originals}")
+            for ft in sin_transform_features + sin_cos_transform_features:
                 if ft in self._input_features:
                     newft_sin = ft[:-5] + '(sin)'
                     newft_cos = ft[:-5] + '(cos)'
                     for key in self._train_keys + self._val_keys:
                         split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
-                        split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
-                        split_df[key].drop(columns=[ft], inplace=True)
-                    self._input_features.remove(ft)
+                        if ft in sin_cos_transform_features:
+                            split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
+                        if not keep_transformed_originals:
+                            split_df[key].drop(columns=[ft], inplace=True)
+                    if not keep_transformed_originals:
+                        self._input_features.remove(ft)
                     self._input_features.append(newft_sin)
-                    self._input_features.append(newft_cos)
-                    
+                    if ft in sin_cos_transform_features:
+                        self._input_features.append(newft_cos)
+
         if add_daytime_feature:
             if verbose>0:
                 print("Adding daytime features.")
@@ -260,6 +268,12 @@ class DatasetGenerator():
         if verbose>1:
                 print(f"Dropping {len(columns_to_remove)} unused columns now.")
         self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in split_df.items()}
+        
+        # change dtypes in the dataframes
+        for key, value in self._preprocessed_dataframes.items():
+            value[self._input_features] = value[self._input_features].astype(input_dtype)
+        self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in split_df.items()}
+
         split_df = None #remove reference to possibly save memory
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
@@ -288,7 +302,7 @@ class DatasetGenerator():
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features))) # dimensions are [index, time, features]
+        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
@@ -314,11 +328,11 @@ class DatasetGenerator():
                     extended_df.fillna(0.0, inplace=True)
             
             strided_obj_len = strided_obj_lens[key]
-            inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
+            inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
-                    new_dt = np.float32
+                    new_dt = self._input_dtype
                 labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)[::stride]
             if only_nodes:
                 node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
@@ -424,7 +438,7 @@ class DatasetGenerator():
                     print(f"Warning: unknown padding method \"{padding}\"! Using zero-padding instead")
                     extended_df.fillna(0.0, inplace=True)
             
-            inputs[key_idx::len(keys)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=np.float32), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
+            inputs[key_idx::len(keys)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
