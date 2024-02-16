@@ -182,21 +182,26 @@ class Dense_NN(Prediction_Model):
                  dense_layers=[32,32],
                  l2_reg=0.0,
                  lr_scheduler=[],
+                 output_type='classification', # 'binary', 'regression'
+                 final_activation=None,
                  seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
-        # TODO: merge with dense_nn_regression class
+
+        assert(output_type in ['classification', 'binary', 'regression'])
 
         # determine input shape
         in_shape = ds.element_spec[0].shape.as_list()
         in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
 
+        # input layer
         inputs = layers.Input(shape=in_shape, name='Input')
         x = inputs
 
         if input_dropout > 0.0:
             x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
+        # CNN stack
         for filters, kernel_size in conv1d_layers:
             x = layers.Conv1D(filters, kernel_size, activation=None,
                               kernel_regularizer=regularizers.l2(l2_reg),
@@ -209,6 +214,7 @@ class Dense_NN(Prediction_Model):
             if mixed_dropout_cnn > 0.0:
                 x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
+        # lstm stack
         for layer_id, units in enumerate(lstm_layers):
             x = layers.LSTM(units, 
                             activation='tanh',
@@ -223,6 +229,7 @@ class Dense_NN(Prediction_Model):
             if mixed_dropout_lstm > 0.0:
                 x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
 
+        # dense stack
         x = layers.Flatten()(x)
         for units in dense_layers:
             x = layers.Dense(units=units,
@@ -233,123 +240,25 @@ class Dense_NN(Prediction_Model):
             x = layers.Activation('relu')(x)
             if mixed_dropout_dense > 0.0:
                 x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
-        outputs = []
-        binary_output = False
-        for out_idx, out_feature in enumerate(ds.element_spec[1]):
-            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
-            n_units = 16
-            if '_Location' in out_feature:
-                n_units = 1
-                binary_output = True
-            elif '_Node' in out_feature:
-                n_units = 4
-            elif '_Type' in out_feature:
-                n_units = 4
-            
-            output = layers.Dense(units=n_units,
-                                activation='sigmoid' if binary_output else 'softmax',
-                                kernel_regularizer=regularizers.l2(l2_reg),
-                                kernel_initializer=self.createInitializer('glorot_uniform'),
-                                bias_initializer=self.createInitializer('zeros'),
-                                name=out_feature)(x)
-            outputs.append(output)
-        self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
-
-        # create optimizer
-        optimizer=keras.optimizers.Adam()
-        if lr_scheduler:
-            if len(lr_scheduler) == 2:
-                lr_scheduler = [0.001] + lr_scheduler # add learning rate
-            lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
-            optimizer=keras.optimizers.Adam(lr_schedule)
-
-        # create losses and metrics
-        loss_functions = [tf.losses.BinaryCrossentropy()] if binary_output else (
-                         [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))])
-        metrics = [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()] if binary_output else (
-                  ['accuracy'])
-
-        self.compile(optimizer=optimizer, loss_fn=loss_functions, metrics=metrics)
-
-class Dense_NN_regression(Prediction_Model):
-    def __init__(self, ds,
-                 input_dropout=0.0,
-                 mixed_dropout_dense=0.0,
-                 mixed_dropout_cnn=0.0,
-                 mixed_dropout_lstm=0.0,
-                 mixed_batchnorm=False,
-                 conv1d_layers=[],
-                 dense_layers=[32,32],
-                 lstm_layers=[],
-                 l2_reg=0.0,
-                 lr_scheduler=[],
-                 final_activation='linear',
-                 seed=None):
-        "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
-        super().__init__(seed)
-
-        # determine input shape
-        in_shape = ds.element_spec[0].shape.as_list()
-        in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
-
-        inputs = layers.Input(shape=in_shape, name='Input')
-        x = inputs
-
-        if input_dropout > 0.0:
-            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
-
-        for filters, kernel_size in conv1d_layers:
-            x = layers.Conv1D(filters, kernel_size, activation=None,
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              bias_initializer=self.createInitializer('zeros')
-                              )(x)
-            if mixed_batchnorm:
-                x = layers.BatchNormalization()(x)
-            x = layers.Activation('relu')(x)
-            if mixed_dropout_cnn > 0.0:
-                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
-
-        for layer_id, units in enumerate(lstm_layers):
-            x = layers.LSTM(units, 
-                            activation='tanh', # changing this will lead to strong performance declines
-                              return_sequences=(layer_id!=(len(lstm_layers)-1)),
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              recurrent_initializer=self.createInitializer('orthogonal'),
-                              bias_initializer=self.createInitializer('zeros')
-                              )(x)
-            if mixed_batchnorm:
-                x = layers.BatchNormalization()(x)
-            #x = layers.Activation('tanh')(x)
-            if mixed_dropout_lstm > 0.0:
-                x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
-
-        x = layers.Flatten()(x)
         
-        for units in dense_layers:
-            x = layers.Dense(units=units,
-                               activation="relu",
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(x)
-            if mixed_dropout_dense > 0.0:
-                x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
+        # create outputs
         outputs = []
-        binary_output = False
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
-            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
+            # adapt number of neurons to match number of classes
             n_units = 16
-            if '_Location' in out_feature:
+            if output_type == 'binary' or output_type == 'regression' or '_Location' in out_feature:
                 n_units = 1
-                binary_output = True
             elif '_Node' in out_feature:
                 n_units = 4
             elif '_Type' in out_feature:
                 n_units = 4
+
+            output_activation = final_activation if final_activation is not None else ('sigmoid' if output_type=='binary'
+                                                                                       else ('softmax' if output_type=='classification'
+                                                                                       else 'linear'))
             
             output = layers.Dense(units=n_units,
-                                activation=final_activation,
+                                activation=output_activation,
                                 kernel_regularizer=regularizers.l2(l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros'),
@@ -365,10 +274,19 @@ class Dense_NN_regression(Prediction_Model):
             lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
             optimizer=keras.optimizers.Adam(lr_schedule)
 
-        # create losses and metrics
-        loss_functions = []
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))], metrics=['mse', 'mae'])
+        # select losses and metrics
+        loss_functions = {
+            'binary' : [tf.losses.BinaryCrossentropy()],
+            'classification' : [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))],
+            'regression' : [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]
+        }
+        metrics = {
+            'binary' : [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],
+            'classification' : ['accuracy'],
+            'regression' : ['mse', 'mae']
+        }
 
+        self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
 
 class CNN(Prediction_Model):
     def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[[64,3],[64,3],[64,3]], l2_reg=0.0, lr_scheduler=[], seed=None):
