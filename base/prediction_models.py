@@ -72,14 +72,14 @@ class Prediction_Model():
         fig, axes = plt.subplots(nrows=1, ncols=2 if not other_keys else 3, figsize=(6 if not other_keys else 9,3))
         plt.tight_layout()
         for key in loss_keys:
-            axes[0].plot(hist.history[key][1:], label=str(key))
+            axes[0].plot(hist.history[key][1:], label=str(key), linestyle='dashed' if 'val' in key else '-')
             axes[0].legend()
         for key in acc_keys:
-            axes[1].plot(hist.history[key][1:], label=str(key))
+            axes[1].plot(hist.history[key][1:], label=str(key), linestyle='dashed' if 'val' in key else '-')
             axes[1].legend()
         if other_keys:
             for key in other_keys:
-                axes[2].plot(hist.history[key][1:], label=str(key))
+                axes[2].plot(hist.history[key][1:], label=str(key), linestyle='dashed' if 'val' in key else '-')
                 axes[2].legend()
         fig.show()
 
@@ -178,6 +178,7 @@ class Dense_NN(Prediction_Model):
                  mixed_dropout_lstm=0.0,
                  mixed_batchnorm=False,
                  conv1d_layers=[],
+                 conv2d_layers=[],
                  lstm_layers=[],
                  dense_layers=[32,32],
                  l2_reg=0.0,
@@ -204,6 +205,20 @@ class Dense_NN(Prediction_Model):
         # CNN stack
         for filters, kernel_size in conv1d_layers:
             x = layers.Conv1D(filters, kernel_size, activation=None,
+                              kernel_regularizer=regularizers.l2(l2_reg),
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              bias_initializer=self.createInitializer('zeros')
+                              )(x)
+            if mixed_batchnorm:
+                x = layers.BatchNormalization()(x)
+            x = layers.Activation('relu')(x)
+            if mixed_dropout_cnn > 0.0:
+                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
+
+        if conv2d_layers:
+            x = layers.Reshape((65,12,1))(x)
+        for filters, kernel_size in conv2d_layers:
+            x = layers.Conv2D(filters, kernel_size, activation=None,
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
@@ -287,58 +302,6 @@ class Dense_NN(Prediction_Model):
         }
 
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
-
-class CNN(Prediction_Model):
-    def __init__(self, ds, input_dropout=0.0, mixed_dropout=0.0, conv_layers=[[64,3],[64,3],[64,3]], l2_reg=0.0, lr_scheduler=[], seed=None):
-        "Create a convolutional model, meant to predict a single output feature at one timestep"
-        super().__init__(seed)
-
-        # determine input shape
-        in_shape = ds.element_spec[0].shape.as_list()
-        in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
-        
-        inputs = layers.Input(shape=in_shape)
-        x = inputs
-
-        if input_dropout > 0.0:
-            x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
-        for filters_kernel in conv_layers:
-            x = keras.layers.Conv1D(filters=filters_kernel[0], kernel_size=filters_kernel[1], padding="same")(x)
-            x = keras.layers.BatchNormalization()(x)
-            x = keras.layers.ReLU()(x)
-            if mixed_dropout > 0.0:
-                x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
-
-        x = layers.GlobalAveragePooling1D()(x)
-        x = layers.Flatten()(x)
-
-        outputs = []
-        for out_idx, out_feature in enumerate(ds.element_spec[1]):
-            # adapt number of neurons to match number of classes... not 20 for _Node and _Type
-            n_units = 20
-            if '_Location' in out_feature:
-                n_units = 2
-            elif '_Node' in out_feature:
-                n_units = 5
-            elif '_Type' in out_feature:
-                n_units = 4
-            output = layers.Dense(units=n_units,
-                                activation="linear",
-                                kernel_regularizer=regularizers.l2(l2_reg),
-                                kernel_initializer=self.createInitializer('glorot_uniform'),
-                                bias_initializer=self.createInitializer('zeros'),
-                                name=out_feature)(x)
-            outputs.append(output)
-        self._model = keras.Model(inputs=inputs, outputs=outputs)
-
-        optimizer=keras.optimizers.Adam()
-        if lr_scheduler:
-            if len(lr_scheduler) == 2:
-                lr_scheduler = [0.001] + lr_scheduler # add learning rate
-            lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
-            optimizer=keras.optimizers.Adam(lr_schedule)
-
-        self.compile(optimizer=optimizer, loss_fn=[tf.losses.SparseCategoricalCrossentropy(from_logits=True) for _ in range(len(ds.element_spec[1]))], metrics=['accuracy'])
 
 class Anchored_Regularizer(tf.keras.regularizers.Regularizer):
     """A Regularizer that regularizes around an anchor distribution"""

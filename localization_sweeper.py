@@ -4,11 +4,12 @@ from pathlib import Path
 #from pympler.tracker import SummaryTracker
 #import tracemalloc
 import gc
+import numpy as np
 
 from base import datahandler, prediction_models, utils, localizer
 
 
-direction='NS'
+direction='EW'
 
 def parameter_sweep(config=None):
     with wandb.init(config=config):
@@ -32,7 +33,22 @@ def parameter_sweep(config=None):
         utils.set_random_seed(42)
 
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                                input_features=ew_input_features if direction=='EW' else ns_input_features,
+                                                non_transform_features=['Eccentricity',
+                                                              'Semimajor Axis (m)',
+                                                              'Inclination (deg)',
+                                                              'RAAN (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
+                                                              'Latitude (deg)'],
+                                                diff_transform_features=['Longitude (deg)',
+                                                                        'True Anomaly (deg)',
+                                                                        'Argument of Periapsis (deg)',
+                                                                        'RAAN (deg)'],
+                                                sin_transform_features=[],
+                                                sin_cos_transform_features=[],
+                                                add_daytime_feature=config.ds_gen['add_daytime_feature'],
+                                                add_yeartime_feature=config.ds_gen['add_yeartime_feature'],
                                                 with_labels=True,
                                                 pad_location_labels=config.ds_gen['pad_location_labels'],
                                                 nonbinary_padding=[100.0, 70.0, 49.0, 34.0, 24.0],
@@ -40,14 +56,14 @@ def parameter_sweep(config=None):
                                                 input_stride=config.ds_gen['input_stride'],
                                                 padding='none',
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
-                                                add_daytime_feature=config.ds_gen['add_daytime_feature'],
+                                                
                                                 node_class_multipliers={'ID':config.ds_gen['class_multiplier_ID'],
                                                                         'IK':config.ds_gen['class_multiplier_IK'],
                                                                         'AD':1.0,
                                                                         'SS':1.0},
-                                                transform_features=config.ds_gen['transform_features'],
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
+                                                input_dtype=np.float32,
                                                 seed=181,
                                                 deepcopy=False)
         print('Input Features: ', ew_input_features if direction=='EW' else ns_input_features)
@@ -62,7 +78,7 @@ def parameter_sweep(config=None):
 
         print(train_ds.element_spec)
 
-        model = prediction_models.Dense_NN_regression(val_ds, 
+        model = prediction_models.Dense_NN(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
                                            lstm_layers=config.model['lstm_layers'],
@@ -73,6 +89,7 @@ def parameter_sweep(config=None):
                                            mixed_dropout_lstm=config.model['mixed_dropout_lstm'],
                                            mixed_batchnorm=config.model['mixed_batchnorm'],
                                            lr_scheduler=config.model['lr_scheduler'],
+                                           output_type='regression',
                                            final_activation='linear',
                                            seed=0)
         model.summary()
@@ -80,7 +97,9 @@ def parameter_sweep(config=None):
         # train
         hist = model.fit(train_ds,
                          val_ds=val_ds,
-                         epochs=50,
+                         epochs=80,
+                         early_stopping=15,
+                         target_metric='val_loss',
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
                          verbose=2)
@@ -174,32 +193,36 @@ sweep_configuration = {
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [5]},
-            "input_stride" : {"values": [2]},
+            "input_stride" : {"values": [4]},
             "per_object_scaling" : {"values" : [False]},
-            "transform_features" : {"values": [False]},
             "add_daytime_feature" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [1.5]},
+            "add_yeartime_feature" : {"values": [False]},
+            "class_multiplier_ID" : {"values": [1.0]}, #!!
             "class_multiplier_IK" : {"values": [1.0]},
-            "input_history_steps" : {"values": [48]},
-            "input_future_steps" : {"values": [48]},
+            "input_history_steps" : {"values": [128,64]},
+            "input_future_steps" : {"values": [128,64]},
+            "feature_engineering" : {
+                "parameters" : {
+                    'RAAN (deg)' : {"values": ['non', 'diff']}
+                }
+            }
             }
         },
         "model" : {
             "parameters" : {
-            "conv1d_layers" : {"values": [[[32,6],[32,6],[32,6]],
-                                          [[48,6],[48,6],[48,6]],
-                                          [[32,5],[32,5],[32,5]],
-                                          [[32,6],[32,5],[32,4]],
-                                          [[16,6],[32,6],[64,6]]]},
-            "dense_layers" : {"values": [[64,32]]},
+            "conv1d_layers" : {"values": [#[]
+                                          [[48,6],[48,6],[48,6]]
+                                          ]},
+            "conv2d_layers" : {"values": [[]]},
+            "dense_layers" : {"values": [[64,64]]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm" : {"values": [True]},
-            "mixed_dropout_dense" : {"values": [0.35]},
-            "mixed_dropout_cnn" : {"values": [0.3]},
-            "mixed_dropout_lstm" : {"values": [0.3]},
-            "lr_scheduler" : {"values": [[0.003,2500,0.9]]},
+            "mixed_dropout_dense" : {"values": [0.05]},
+            "mixed_dropout_cnn" : {"values": [0.05]},
+            "mixed_dropout_lstm" : {"values": [0.0]},
+            "lr_scheduler" : {"values": [[0.003,3000,0.9]]},
             "seed" : {"values": [0]},
             }
         },

@@ -58,7 +58,7 @@ def create_prediction_df(ds_gen,
             identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
             # get predictions
-            preds = model.predict(ds, verbose=verbose)
+            preds = np.asarray(model.predict(ds, verbose=verbose))
 
             all_identifiers.append(identifiers)
             all_predictions.append(preds)
@@ -92,8 +92,9 @@ def create_prediction_df(ds_gen,
         gc.collect()
 
     # now create df by concatenating all the individual lists
+    # TODO: make compatible with one and two outputs
     all_identifiers = np.concatenate(all_identifiers)
-    all_predictions = np.concatenate(all_predictions)
+    all_predictions = np.concatenate(all_predictions, axis=0 if len(output_dirs)==1 else 1)#, axis=1)
 
     df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 

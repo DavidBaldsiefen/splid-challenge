@@ -10,7 +10,7 @@ import copy
 import gc
 
 
-def load_and_prepare_dataframes(data_dir, labels_dir):
+def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
     # Load the labels
     if labels_dir is None:
         print("loading data without labels")
@@ -26,7 +26,24 @@ def load_and_prepare_dataframes(data_dir, labels_dir):
         raise ValueError(f'No csv files found in {data_dir}')
     for data_file in data_files:
         object_id = int(data_file.stem)
-        object_df = pd.read_csv(data_file)
+        object_df = pd.read_csv(data_file,
+                                dtype={
+                                    'Eccentricity' : dtype,
+                                    'Semimajor Axis (m)' : dtype,
+                                    'Inclination (deg)' : dtype,
+                                    'RAAN (deg)' : dtype,
+                                    'Argument of Periapsis (deg)' : dtype,
+                                    'True Anomaly (deg)' : dtype,
+                                    'Latitude (deg)' : dtype,
+                                    'Longitude (deg)' : dtype,
+                                    'Altitude (m)' : dtype,
+                                    'X (m)' : dtype,
+                                    'Y (m)' : dtype,
+                                    'Z (m)' : dtype,
+                                    'Vx (m/s)' : dtype,
+                                    'Vy (m/s)' : dtype,
+                                    'Vz (m/s)' : dtype,
+                                })
         object_df['ObjectID'] = int(data_file.stem)
         object_df['TimeIndex'] = range(len(object_df))
 
@@ -97,16 +114,18 @@ class DatasetGenerator():
                  split_df,
                  input_history_steps=10, # how many history timesteps we get as input, including the current one
                  input_future_steps=0, # how many future timesteps we get as input
-                 input_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
+                 non_transform_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
+                 sin_transform_features=[],
+                 sin_cos_transform_features=[],
+                 diff_transform_features=[],
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
-                 sin_transform_features=['Longitude (deg)', 'Argument of Periapsis (deg)', 'RAAN (deg)'],
-                 sin_cos_transform_features=['True Anomaly (deg)'],
                  keep_transformed_originals=True,
                  add_daytime_feature=False,
+                 add_yeartime_feature=False,
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
@@ -118,9 +137,9 @@ class DatasetGenerator():
                  verbose=1,
                  deepcopy=True):
 
-        split_df = copy.deepcopy(split_df) if deepcopy else split_df # TODO: maybe this eats up loads of memory or sth?
+        split_df = copy.deepcopy(split_df) if deepcopy else split_df
 
-        self._input_features=input_features
+        self._input_features=non_transform_features
         self._with_labels=with_labels
         self._input_history_steps = input_history_steps
         self._input_future_steps = input_future_steps
@@ -161,24 +180,37 @@ class DatasetGenerator():
         # Run sin+cos over deg fields, to bring 0deg and 360deg next to each other
         if sin_transform_features or sin_cos_transform_features:
             if verbose > 0:
-                print(f"Sin-Transforming features: {[ft for ft in sin_transform_features if ft in self._input_features]}")
-                print(f"Sin-Cos-Transforming features: {[ft for ft in sin_cos_transform_features if ft in self._input_features]}")
-                print(f"Keeping original fetures: {keep_transformed_originals}")
+                print(f"Sin-Transforming features: {sin_transform_features}")
+                print(f"Sin-Cos-Transforming features: {sin_cos_transform_features}")
             for ft in sin_transform_features + sin_cos_transform_features:
-                if ft in self._input_features:
-                    newft_sin = ft[:-5] + '(sin)'
-                    newft_cos = ft[:-5] + '(cos)'
-                    for key in self._train_keys + self._val_keys:
-                        split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
-                        if ft in sin_cos_transform_features:
-                            split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
-                        if not keep_transformed_originals:
-                            split_df[key].drop(columns=[ft], inplace=True)
-                    if not keep_transformed_originals:
-                        self._input_features.remove(ft)
-                    self._input_features.append(newft_sin)
+                newft_sin = ft[:-5] + '(sin)'
+                newft_cos = ft[:-5] + '(cos)'
+                for key in self._train_keys + self._val_keys:
+                    split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
                     if ft in sin_cos_transform_features:
-                        self._input_features.append(newft_cos)
+                        split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
+                self._input_features.append(newft_sin)
+                if ft in sin_cos_transform_features:
+                    self._input_features.append(newft_cos)
+
+        if diff_transform_features:
+            if verbose > 0:
+                print(f"Diff Transforming features: {diff_transform_features}")
+            for ft in diff_transform_features:
+                newft = ft + ' (diff)'
+                wraparound_offset = ([180, -180] if ft == 'Longitude (deg)' else
+                                     [270, -90] if ft in ['True Anomaly (deg)'] else # Longitude should usually increase, but small decreases are possible
+                                     [180, -180] if ft in ['Argument of Periapsis (deg)', 'RAAN (deg)'] else
+                                     [])
+                if verbose > 1:
+                    print(f"Wraparound offset for ft {ft}: {wraparound_offset}")
+                for key in self._train_keys + self._val_keys:
+                    diff_vals = np.diff(split_df[key][ft], prepend=split_df[key][ft][0])
+                    if wraparound_offset:
+                        diff_vals[diff_vals > wraparound_offset[0]] -= 360
+                        diff_vals[diff_vals < wraparound_offset[1]] += 360
+                    split_df[key][newft] = np.diff(split_df[key][ft], prepend=split_df[key][ft][0])
+                self._input_features.append(newft)
 
         if add_daytime_feature:
             if verbose>0:
@@ -188,10 +220,23 @@ class DatasetGenerator():
                 split_df[key]['Epoch'] = (split_df[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
                 siderial_day = 86164 # seconds in a sidereal day
                 split_df[key]['Epoch Day (sin)'] = np.sin((2*np.pi*split_df[key]['Epoch'])/siderial_day)
-                split_df[key]['Epoch Day (cos)'] = np.sin((2*np.pi*split_df[key]['Epoch'])/siderial_day)
+                split_df[key]['Epoch Day (cos)'] = np.cos((2*np.pi*split_df[key]['Epoch'])/siderial_day)
                 split_df[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
             self._input_features.append('Epoch Day (sin)')
             self._input_features.append('Epoch Day (cos)')
+
+        if add_yeartime_feature:
+            if verbose>0:
+                print("Adding yeartime features.")
+            for key in self._train_keys + self._val_keys:
+                split_df[key]['Datetime'] = pd.to_datetime(split_df[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
+                split_df[key]['Epoch'] = (split_df[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
+                seconds_per_siderial_year = 86400 * 365.24 # seconds in a sidereal year
+                split_df[key]['Epoch Year Fraction (sin)'] = np.sin((2*np.pi*split_df[key]['Epoch'])/seconds_per_siderial_year)
+                split_df[key]['Epoch Year Fraction (cos)'] = np.cos((2*np.pi*split_df[key]['Epoch'])/seconds_per_siderial_year)
+                split_df[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
+            self._input_features.append('Epoch Year Fraction (sin)')
+            self._input_features.append('Epoch Year Fraction (cos)')
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
@@ -263,7 +308,7 @@ class DatasetGenerator():
 
         # Drop all of the columns we dont need to preserve memory
         columns_to_keep = ['ObjectID', 'TimeIndex'] + self._input_features + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
-                                                   'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location',] if with_labels else [])
+                                                   'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location'] if with_labels else [])
         columns_to_remove = [item for item in split_df[self._train_keys[0]].columns if item not in columns_to_keep]
         if verbose>1:
                 print(f"Dropping {len(columns_to_remove)} unused columns now.")
@@ -278,7 +323,7 @@ class DatasetGenerator():
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
         if verbose > 0:
-            print(f"Final input features: {self._input_features}")
+            print(f"Final {len(self._input_features)} input features: {self._input_features}")
   
         if verbose > 0:
             print(f"=========================Finished Generator=======================")

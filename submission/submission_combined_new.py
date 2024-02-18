@@ -15,10 +15,10 @@ if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_localizer_cnn.hdf5')
+LOCALIZER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/EW_localizer_cnn.hdf5')
 SCALER_EW_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/EW_localizer_scaler_cnn.pkl')
 
-LOCALIZER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ns_localizer_cnn.hdf5')
+LOCALIZER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/NS_localizer_cnn.hdf5')
 SCALER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/NS_localizer_scaler_cnn.pkl')
 
 CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
@@ -33,12 +33,20 @@ print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DI
 
 # =================================LOCALIZATION==========================================
 #-----------------------------------EW-------------------------------
-ew_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
-                        'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-                        'Longitude (deg)']
+
 ew_localizer_scaler = pickle.load(open(SCALER_EW_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                      input_features=ew_input_features,
+                                      non_transform_features=['Eccentricity',
+                                                              'Semimajor Axis (m)',
+                                                              'Inclination (deg)',
+                                                              'RAAN (deg)',
+                                                              #'Argument of Periapsis (deg)',
+                                                              #'True Anomaly (deg)',
+                                                              #'Longitude (deg)',
+                                                              'Latitude (deg)'],
+                                      diff_transform_features=['True Anomaly (deg)'],
+                                      sin_transform_features=[],
+                                      sin_cos_transform_features=['Longitude (deg)', 'Argument of Periapsis (deg)'],
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
@@ -46,8 +54,8 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       input_history_steps=48,
                                       input_future_steps=24,
                                       per_object_scaling=False,
-                                      transform_features=True,
                                       custom_scaler=ew_localizer_scaler,
+                                      input_dtype=np.float32,
                                       seed=69)
 
 print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\" and scaler \"{SCALER_EW_DIR}\"")
@@ -68,21 +76,34 @@ ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
                                             clean_consecutives=True)
 gc.collect()
 #-----------------------------------NS-------------------------------
-ns_input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
-                        'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-                        'Longitude (deg)']
+
 ns_localizer_scaler = pickle.load(open(SCALER_NS_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                      input_features=ns_input_features,
+                                      non_transform_features=['Eccentricity',
+                                                              'Semimajor Axis (m)',
+                                                              'Inclination (deg)',
+                                                              'RAAN (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
+                                                              'Latitude (deg)'],
+                                      diff_transform_features=['Longitude (deg)',
+                                                               'True Anomaly (deg)',
+                                                               'Argument of Periapsis (deg)',
+                                                               'RAAN (deg)'],
+                                      sin_transform_features=[],
+                                      sin_cos_transform_features=[],
+                                      add_daytime_feature=False,
+                                      add_yeartime_feature=False,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=2,
-                                      padding='none',
-                                      input_history_steps=48,
-                                      input_future_steps=48,
+                                      input_stride=4,
+                                      padding='zero', #!
+                                      input_history_steps=128,
+                                      input_future_steps=128,
                                       per_object_scaling=False,
-                                      transform_features=False,
                                       custom_scaler=ns_localizer_scaler,
+                                      input_dtype=np.float32,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
@@ -97,7 +118,7 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=70.0,
+                                            threshold=60.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -110,18 +131,32 @@ print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
 # =================================CLASSIFICATION==========================================
 
 classifier_scaler = pickle.load(open(SCALER_CLASSIFIER_DIR, 'rb'))
-input_features_reduced_further = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)', 'Latitude (deg)', 'Longitude (deg)']
 
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                      input_features=input_features_reduced_further,
+                                      non_transform_features=['Eccentricity',
+                                                              'Semimajor Axis (m)',
+                                                              'Inclination (deg)',
+                                                              'RAAN (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
+                                                              'Latitude (deg)'],
+                                      diff_transform_features=['Longitude (deg)',
+                                                               'True Anomaly (deg)',
+                                                               'Argument of Periapsis (deg)',
+                                                               'RAAN (deg)'],
+                                      sin_transform_features=[],
+                                      sin_cos_transform_features=[],
+                                      add_daytime_feature=False,
+                                      add_yeartime_feature=True,
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
                                       padding='zero',
-                                      input_history_steps=1,
+                                      input_history_steps=16,
                                       input_future_steps=128,
                                       custom_scaler=classifier_scaler,
-                                      transform_features=False,
+                                      input_dtype=np.float32,
                                       seed=69)
 print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
 classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR)
@@ -157,7 +192,7 @@ if not DEBUG_MODE:
 else:
     print("Evaluating...")
     ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
-    #results.to_csv('submission/submission/local_sub.csv', index=False)
+    results.to_csv('submission/submission/debug_submission.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')
