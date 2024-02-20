@@ -118,12 +118,12 @@ class DatasetGenerator():
                  sin_transform_features=[],
                  sin_cos_transform_features=[],
                  diff_transform_features=[],
+                 overview_features=[],
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
-                 keep_transformed_originals=True,
                  add_daytime_feature=False,
                  add_yeartime_feature=False,
                  shuffle_train_val=True,
@@ -147,6 +147,7 @@ class DatasetGenerator():
         self._input_dtype = input_dtype
         self._padding = padding
         self._seed = seed
+        self._overview_features=overview_features
 
         if verbose>0:
             print(f"=========================Creating Generator=======================\nSeed: {self._seed}")
@@ -323,7 +324,7 @@ class DatasetGenerator():
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
         if verbose > 0:
-            print(f"Final {len(self._input_features)} input features: {self._input_features}")
+            print(f"Final {len(self._input_features) + len(self._overview_features)} input features: {self._input_features} + overview of {self._overview_features}")
   
         if verbose > 0:
             print(f"=========================Finished Generator=======================")
@@ -332,6 +333,7 @@ class DatasetGenerator():
                                   split_df,
                                   keys,
                                   input_features,
+                                  overview_features,
                                   label_features,
                                   only_nodes,
                                   only_ew_sk,
@@ -347,7 +349,7 @@ class DatasetGenerator():
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
@@ -356,6 +358,17 @@ class DatasetGenerator():
         keys.sort()
         for key in keys:
             extended_df = split_df[key]
+            strided_obj_len = strided_obj_lens[key]
+
+            if overview_features:
+                # Add overview features which are identical everywhere inside on object and capture a view of the entire feature development
+                n_segments = int(np.ceil(window_size/input_stride))
+                segment_length=len(extended_df)//int(np.ceil(window_size/input_stride))
+                object_border = (len(extended_df)%n_segments)//2 # we have to cut off a bit on the left and right
+                segmented_features=np.split(extended_df[overview_features].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
+                mean_vals = np.mean(segmented_features, axis=1)
+                inputs[current_row:current_row+strided_obj_len,:,len(input_features):] = mean_vals
+
             if padding != 'none':
                 extended_df = split_df[key].copy()
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
@@ -372,8 +385,7 @@ class DatasetGenerator():
                     print(f"Warning: unknown padding method \"{padding}\"! Using zero-padding instead")
                     extended_df.fillna(0.0, inplace=True)
             
-            strided_obj_len = strided_obj_lens[key]
-            inputs[current_row:current_row+strided_obj_len] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
+            inputs[current_row:current_row+strided_obj_len,:,:len(input_features)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
             if label_features:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
@@ -547,7 +559,8 @@ class DatasetGenerator():
             
         return datasets if len(datasets)>1 else datasets[0]
 
-    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'], 
+    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
+                     overview_input_features=[],
                      with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
                      train_keys=None, val_keys=None, stride=1, keep_label_stride=1):
         
@@ -557,6 +570,7 @@ class DatasetGenerator():
         train_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                 keys=train_keys,
                                                 input_features=self._input_features,
+                                                overview_features=self._overview_features,
                                                 label_features=label_features,
                                                 only_nodes=only_nodes,
                                                 only_ew_sk=only_ew_sk,
@@ -572,6 +586,7 @@ class DatasetGenerator():
             val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                     keys=val_keys,
                                                     input_features=self._input_features,
+                                                    overview_features=self._overview_features,
                                                     label_features=label_features,
                                                     only_nodes=only_nodes,
                                                     only_ew_sk=only_ew_sk,

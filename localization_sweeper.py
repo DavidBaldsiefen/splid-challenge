@@ -9,11 +9,13 @@ import numpy as np
 from base import datahandler, prediction_models, utils, localizer
 
 
-direction='EW'
+direction='NS'
 
 def parameter_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
+
+        # =================================Data Loading & Preprocessing================================================
 
         # Load data
         challenge_data_dir = Path('dataset/phase_1_v2/')
@@ -23,30 +25,31 @@ def parameter_sweep(config=None):
 
         print(f"Direction: {direction}")
 
-        input_features = ['Eccentricity', 'Semimajor Axis (m)', 'Inclination (deg)', 'RAAN (deg)',
-       'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)',
-       'Longitude (deg)']
-        ew_input_features = input_features#['Eccentricity', 'Semimajor Axis (m)', 'Argument of Periapsis (deg)', 'Longitude (deg)', 'Altitude (m)']
-        ns_input_features = input_features#['Eccentricity', 'Semimajor Axis (m)',  'Argument of Periapsis (deg)', 'Inclination (deg)', 'Latitude (deg)', 'Longitude (deg)']
-
         # Create Dataset
         utils.set_random_seed(42)
 
+        non_transform_features = ['Eccentricity',
+                                    'Semimajor Axis (m)',
+                                    'Inclination (deg)',
+                                    'Latitude (deg)']
+        diff_transform_features=[]
+        sin_transform_features = []
+        sin_cos_transform_features = []
+
+        for key, value in config.feature_engineering.items():
+            ft_name = key.replace('_', ' ') + ' (deg)'
+            if value == 'non': non_transform_features += [ft_name]
+            elif value == 'diff': diff_transform_features += [ft_name]
+            elif value == 'sin': sin_transform_features += [ft_name]
+            elif value == 'sin_cos': sin_cos_transform_features += [ft_name]
+            else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
+
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                                non_transform_features=['Eccentricity',
-                                                              'Semimajor Axis (m)',
-                                                              'Inclination (deg)',
-                                                              'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
-                                                              'True Anomaly (deg)',
-                                                              'Longitude (deg)',
-                                                              'Latitude (deg)'],
-                                                diff_transform_features=['Longitude (deg)',
-                                                                        'True Anomaly (deg)',
-                                                                        'Argument of Periapsis (deg)',
-                                                                        'RAAN (deg)'],
-                                                sin_transform_features=[],
-                                                sin_cos_transform_features=[],
+                                                non_transform_features=non_transform_features,
+                                                diff_transform_features=diff_transform_features,
+                                                sin_transform_features=sin_transform_features,
+                                                sin_cos_transform_features=sin_cos_transform_features,
+                                                overview_input_features=config.feature_engineering['overview_features'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
                                                 add_yeartime_feature=config.ds_gen['add_yeartime_feature'],
                                                 with_labels=True,
@@ -54,9 +57,8 @@ def parameter_sweep(config=None):
                                                 nonbinary_padding=[100.0, 70.0, 49.0, 34.0, 24.0],
                                                 train_val_split=0.8,
                                                 input_stride=config.ds_gen['input_stride'],
-                                                padding='none',
+                                                padding='zero', #!
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
-                                                
                                                 node_class_multipliers={'ID':config.ds_gen['class_multiplier_ID'],
                                                                         'IK':config.ds_gen['class_multiplier_IK'],
                                                                         'AD':1.0,
@@ -66,10 +68,8 @@ def parameter_sweep(config=None):
                                                 input_dtype=np.float32,
                                                 seed=181,
                                                 deepcopy=False)
-        print('Input Features: ', ew_input_features if direction=='EW' else ns_input_features)
-        print('Trn-keys:', ds_gen.train_keys)
-        print('Val-keys:', ds_gen.val_keys)
-        
+        # print('Trn-keys:', ds_gen.train_keys)
+        # print('Val-keys:', ds_gen.val_keys)
         train_ds, val_ds = ds_gen.get_datasets(1024,
                                                label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
@@ -77,6 +77,8 @@ def parameter_sweep(config=None):
                                                keep_label_stride=config.ds_gen['keep_label_stride'])
 
         print(train_ds.element_spec)
+
+        # =================================Model Creation & Training================================================
 
         model = prediction_models.Dense_NN(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
@@ -97,7 +99,7 @@ def parameter_sweep(config=None):
         # train
         hist = model.fit(train_ds,
                          val_ds=val_ds,
-                         epochs=80,
+                         epochs=100,
                          early_stopping=15,
                          target_metric='val_loss',
                          plot_hist=False,
@@ -113,6 +115,8 @@ def parameter_sweep(config=None):
         val_ds = None
         del train_ds
         del val_ds
+
+        # ====================================Evaluation===================================================
 
         # perform final evaluation
         n_batches = 10
@@ -188,6 +192,18 @@ sweep_configuration = {
     "method": "grid",
     "metric": {"goal": "maximize", "name": "F2"},
     "parameters": {
+        "feature_engineering" : {
+            "parameters" : {
+                'RAAN' : {"values": ['non']},
+                'Argument_of_Periapsis' : {"values": ['sin']},
+                'True_Anomaly' : {"values": ['sin']},
+                'Longitude' : {"values": ['sin']},
+                'overview_features' : {"values" : [['Longitude (sin)', 'RAAN (deg)', 'Eccentricity'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Argument of Periapsis (sin)'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Inclination (deg)'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Semimajor Axis (m)']]}
+            }
+        },
         "ds_gen" : {
             "parameters" : {
             "pad_location_labels" : {"values": [0]},
@@ -197,21 +213,16 @@ sweep_configuration = {
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [1.0]}, #!!
+            "class_multiplier_ID" : {"values": [1.5]}, #!!
             "class_multiplier_IK" : {"values": [1.0]},
-            "input_history_steps" : {"values": [128,64]},
-            "input_future_steps" : {"values": [128,64]},
-            "feature_engineering" : {
-                "parameters" : {
-                    'RAAN (deg)' : {"values": ['non', 'diff']}
-                }
-            }
+            "input_history_steps" : {"values": [128]},
+            "input_future_steps" : {"values": [128]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[48,6],[48,6],[48,6]]
+                                          [[64,6],[64,6],[48,6]]
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,64]]},
