@@ -49,7 +49,7 @@ def parameter_sweep(config=None):
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
-                                                overview_input_features=config.feature_engineering['overview_features'],
+                                                overview_features=config.ds_gen['overview_features'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
                                                 add_yeartime_feature=config.ds_gen['add_yeartime_feature'],
                                                 with_labels=True,
@@ -198,14 +198,14 @@ sweep_configuration = {
                 'Argument_of_Periapsis' : {"values": ['sin']},
                 'True_Anomaly' : {"values": ['sin']},
                 'Longitude' : {"values": ['sin']},
-                'overview_features' : {"values" : [['Longitude (sin)', 'RAAN (deg)', 'Eccentricity'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Argument of Periapsis (sin)'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Inclination (deg)'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Semimajor Axis (m)']]}
             }
         },
         "ds_gen" : {
             "parameters" : {
+            'overview_features' : {"values" : [['Longitude (sin)', 'RAAN (deg)', 'Eccentricity'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Argument of Periapsis (sin)'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Inclination (deg)'],
+                                                   ['Longitude (sin)', 'RAAN (deg)', 'Semimajor Axis (m)']]},
             "pad_location_labels" : {"values": [0]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [5]},

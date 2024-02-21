@@ -67,7 +67,6 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
                                         label_features=[] if test else model_outputs,
                                         shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                         with_identifier=True,
-                                        overview_input_features=['Longitude (deg)', 'RAAN (deg)'],
                                         train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
                                         val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
                                         only_nodes=only_nodes,

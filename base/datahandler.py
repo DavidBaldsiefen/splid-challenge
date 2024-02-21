@@ -118,14 +118,16 @@ class DatasetGenerator():
                  sin_transform_features=[],
                  sin_cos_transform_features=[],
                  diff_transform_features=[],
-                 overview_features=[],
+                 overview_features_mean=[],
+                 overview_features_std=[],
+                 add_daytime_feature=False,
+                 add_yeartime_feature=False,
+                 add_linear_timeindex=False,
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
-                 add_daytime_feature=False,
-                 add_yeartime_feature=False,
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
@@ -147,7 +149,8 @@ class DatasetGenerator():
         self._input_dtype = input_dtype
         self._padding = padding
         self._seed = seed
-        self._overview_features=overview_features
+        self._overview_features_mean=overview_features_mean
+        self._overview_features_std=overview_features_std
 
         if verbose>0:
             print(f"=========================Creating Generator=======================\nSeed: {self._seed}")
@@ -239,6 +242,13 @@ class DatasetGenerator():
             self._input_features.append('Epoch Year Fraction (sin)')
             self._input_features.append('Epoch Year Fraction (cos)')
 
+        if add_linear_timeindex:
+            if verbose>0:
+                print("Adding linear timeindex.")
+            for key in self._train_keys + self._val_keys:
+                split_df[key]['LinearTimeIndex'] = np.linspace(-1.0, 1.0, len(split_df[key]))
+            self._input_features.append('LinearTimeIndex')
+
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
             if verbose>1:
@@ -308,7 +318,7 @@ class DatasetGenerator():
                 print("No Labels")
 
         # Drop all of the columns we dont need to preserve memory
-        columns_to_keep = ['ObjectID', 'TimeIndex'] + self._input_features + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
+        columns_to_keep = ['ObjectID', 'TimeIndex'] + self._input_features + self._overview_features_mean + self._overview_features_std + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
                                                    'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location'] if with_labels else [])
         columns_to_remove = [item for item in split_df[self._train_keys[0]].columns if item not in columns_to_keep]
         if verbose>1:
@@ -324,7 +334,7 @@ class DatasetGenerator():
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
         if verbose > 0:
-            print(f"Final {len(self._input_features) + len(self._overview_features)} input features: {self._input_features} + overview of {self._overview_features}")
+            print(f"Final {len(self._input_features) + len(self._overview_features_mean) + len(self._overview_features_std)} input features: {self._input_features} + overview of {self._overview_features_mean} (mean) and {self._overview_features_std} (std)")
   
         if verbose > 0:
             print(f"=========================Finished Generator=======================")
@@ -333,7 +343,8 @@ class DatasetGenerator():
                                   split_df,
                                   keys,
                                   input_features,
-                                  overview_features,
+                                  overview_features_mean,
+                                  overview_features_std,
                                   label_features,
                                   only_nodes,
                                   only_ew_sk,
@@ -349,7 +360,7 @@ class DatasetGenerator():
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
         strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
         n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
@@ -360,21 +371,27 @@ class DatasetGenerator():
             extended_df = split_df[key]
             strided_obj_len = strided_obj_lens[key]
 
-            if overview_features:
+            if overview_features_mean or overview_features_std:
                 # Add overview features which are identical everywhere inside on object and capture a view of the entire feature development
                 n_segments = int(np.ceil(window_size/input_stride))
                 segment_length=len(extended_df)//int(np.ceil(window_size/input_stride))
                 object_border = (len(extended_df)%n_segments)//2 # we have to cut off a bit on the left and right
-                segmented_features=np.split(extended_df[overview_features].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
-                mean_vals = np.mean(segmented_features, axis=1)
-                inputs[current_row:current_row+strided_obj_len,:,len(input_features):] = mean_vals
+                
+                #mean
+                segmented_features_mean=np.split(extended_df[overview_features_mean].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
+                mean_vals = np.mean(segmented_features_mean, axis=1)
+                inputs[current_row:current_row+strided_obj_len,:,len(input_features):len(input_features)+len(overview_features_mean)] = mean_vals
+                #std
+                segmented_features_std=np.split(extended_df[overview_features_std].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
+                std_vals = np.std(segmented_features_std, axis=1)
+                inputs[current_row:current_row+strided_obj_len,:,len(input_features)+len(overview_features_mean):] = std_vals
 
             if padding != 'none':
                 extended_df = split_df[key].copy()
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
                 # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
-                nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns)
-                nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns)
+                nan_df_history = pd.DataFrame(np.nan, index=pd.RangeIndex(input_history_steps-1), columns=split_df[key].columns, dtype=np.float32)
+                nan_df_future = pd.DataFrame(np.nan, index=pd.RangeIndex(input_future_steps-1), columns=split_df[key].columns, dtype=np.float32)
                 extended_df = pd.concat([nan_df_history, split_df[key], nan_df_future]).reset_index(drop=True)
                 if padding=='same':
                     extended_df.bfill(inplace=True) # replace NaN values in the beginning with first actual value
@@ -560,7 +577,6 @@ class DatasetGenerator():
         return datasets if len(datasets)>1 else datasets[0]
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
-                     overview_input_features=[],
                      with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
                      train_keys=None, val_keys=None, stride=1, keep_label_stride=1):
         
@@ -570,7 +586,8 @@ class DatasetGenerator():
         train_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                 keys=train_keys,
                                                 input_features=self._input_features,
-                                                overview_features=self._overview_features,
+                                                overview_features_mean=self._overview_features_mean,
+                                                overview_features_std=self._overview_features_std,
                                                 label_features=label_features,
                                                 only_nodes=only_nodes,
                                                 only_ew_sk=only_ew_sk,
@@ -586,7 +603,8 @@ class DatasetGenerator():
             val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                     keys=val_keys,
                                                     input_features=self._input_features,
-                                                    overview_features=self._overview_features,
+                                                    overview_features_mean=self._overview_features_mean,
+                                                    overview_features_std=self._overview_features_std,
                                                     label_features=label_features,
                                                     only_nodes=only_nodes,
                                                     only_ew_sk=only_ew_sk,
@@ -605,6 +623,17 @@ class DatasetGenerator():
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]
+    
+    def plot_dataset_items(self, ds_with_identifier):
+        # TODO: plot random dataset items for debugging
+        print("TBD")
+        inputs = np.concatenate([element for element in ds_with_identifier.map(lambda x,y,z:x).as_numpy_iterator()])
+        identifiers = np.concatenate([element for element in ds_with_identifier.map(lambda x,y,z:z).as_numpy_iterator()])
+
+        # Take some element
+        print(inputs.shape, identifiers.shape)
+        inputs=None
+        identifiers=None
     
     @property
     def input_feature_indices(self):

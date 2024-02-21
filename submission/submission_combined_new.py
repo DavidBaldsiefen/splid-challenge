@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
@@ -24,7 +24,7 @@ SCALER_NS_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/NS_localiz
 CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
-TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test/')
+TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/full/') #!!!
 TEST_PREDS_FP = Path(('submission/' if DEBUG_MODE else '/') + 'submission/submission.csv')
 
 # Load Data
@@ -47,6 +47,11 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       diff_transform_features=['True Anomaly (deg)'],
                                       sin_transform_features=[],
                                       sin_cos_transform_features=['Longitude (deg)', 'Argument of Periapsis (deg)'],
+                                      overview_features_mean=[],
+                                      overview_features_std=[],
+                                      add_daytime_feature=False,
+                                      add_yeartime_feature=False,
+                                      add_linear_timeindex=False,
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
@@ -59,7 +64,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       seed=69)
 
 print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\" and scaler \"{SCALER_EW_DIR}\"")
-ew_localizer = tf.keras.models.load_model(LOCALIZER_EW_DIR)
+ew_localizer = tf.keras.models.load_model(LOCALIZER_EW_DIR, compile=False)
 
 ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=ew_localizer,
@@ -83,31 +88,32 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'Semimajor Axis (m)',
                                                               'Inclination (deg)',
                                                               'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
-                                                              'True Anomaly (deg)',
-                                                              'Longitude (deg)',
+                                                              #'Argument of Periapsis (deg)',
+                                                              #'True Anomaly (deg)',
+                                                              #'Longitude (deg)',
                                                               'Latitude (deg)'],
-                                      diff_transform_features=['Longitude (deg)',
-                                                               'True Anomaly (deg)',
-                                                               'Argument of Periapsis (deg)',
-                                                               'RAAN (deg)'],
-                                      sin_transform_features=[],
+                                      diff_transform_features=['True Anomaly (deg)'],
+                                      sin_transform_features=['Longitude (deg)',
+                                                               'Argument of Periapsis (deg)'],
                                       sin_cos_transform_features=[],
+                                      overview_features_mean=['Longitude (sin)', 'RAAN (deg)'],
+                                      overview_features_std=['Latitude (deg)'],
                                       add_daytime_feature=False,
                                       add_yeartime_feature=False,
+                                      add_linear_timeindex=True,
                                       with_labels=False,
                                       train_val_split=1.0,
-                                      input_stride=4,
+                                      input_stride=8,
                                       padding='zero', #!
-                                      input_history_steps=128,
-                                      input_future_steps=128,
+                                      input_history_steps=256,
+                                      input_future_steps=256,
                                       per_object_scaling=False,
                                       custom_scaler=ns_localizer_scaler,
                                       input_dtype=np.float32,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
-ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR)
+ns_localizer = tf.keras.models.load_model(LOCALIZER_NS_DIR, compile=False)
 ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=ns_localizer,
                                 train=False,
@@ -137,29 +143,31 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'Semimajor Axis (m)',
                                                               'Inclination (deg)',
                                                               'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
-                                                              'True Anomaly (deg)',
-                                                              'Longitude (deg)',
+                                                              #'Argument of Periapsis (deg)',
+                                                              #'True Anomaly (deg)',
+                                                              #'Longitude (deg)',
                                                               'Latitude (deg)'],
-                                      diff_transform_features=['Longitude (deg)',
-                                                               'True Anomaly (deg)',
-                                                               'Argument of Periapsis (deg)',
-                                                               'RAAN (deg)'],
-                                      sin_transform_features=[],
+                                      diff_transform_features=[],
+                                      sin_transform_features=['Longitude (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Argument of Periapsis (deg)'],
                                       sin_cos_transform_features=[],
+                                      overview_features_mean=['Eccentricity', 'Longitude (sin)', 'RAAN (deg)'],
+                                      overview_features_std=['Latitude (deg)'],
                                       add_daytime_feature=False,
-                                      add_yeartime_feature=True,
+                                      add_yeartime_feature=False,
+                                      add_linear_timeindex=True,
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
                                       padding='zero',
                                       input_history_steps=16,
-                                      input_future_steps=128,
+                                      input_future_steps=192,
                                       custom_scaler=classifier_scaler,
                                       input_dtype=np.float32,
                                       seed=69)
 print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
-classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR)
+classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR, compile=False)
 
 pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 model=classifier_model,
@@ -191,7 +199,7 @@ if not DEBUG_MODE:
     print("Finished sleeping")
 else:
     print("Evaluating...")
-    ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
+    ground_truth_df = pd.read_csv(Path('submission/dataset/full_labels.csv')) #!!!
     results.to_csv('submission/submission/debug_submission.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()

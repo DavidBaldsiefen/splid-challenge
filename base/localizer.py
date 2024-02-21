@@ -121,7 +121,7 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
     labels = np.concatenate([element for element in ds.map(lambda x,y,z: y[label_features[0]]).as_numpy_iterator()])
     identifiers = np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
     preds = model.predict(ds, verbose=2).astype(np.int32) # we dont need float precision
-    df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds])
+    df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds]).astype(np.int32)
 
     df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + ['Preds'], dtype=np.int32)
 

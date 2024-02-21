@@ -170,6 +170,21 @@ class Linear_NN(Prediction_Model):
 
         self.compile()
 
+class AsymmetricMSE(tf.keras.losses.Loss):
+    """Loss function that penalizes over- (a>0) or underestimation (a<0). -1<a<1"""
+    def __init__(self, alpha):
+        super().__init__()
+        assert(-1.0<alpha and alpha<1.0)
+        self.alpha = alpha
+
+    def __call__(self, y_true, y_pred, sample_weight=None):
+        diff = y_pred - y_true
+        loss = tf.reduce_mean(tf.square(diff) * tf.square(tf.sign(diff) + self.alpha))
+        return loss
+    
+    def get_config(self):
+        return {'alpha' : float(self.alpha)}
+
 class Dense_NN(Prediction_Model):
     def __init__(self, ds,
                  input_dropout=0.0,
@@ -185,6 +200,7 @@ class Dense_NN(Prediction_Model):
                  lr_scheduler=[],
                  output_type='classification', # 'binary', 'regression'
                  final_activation=None,
+                 asymmetric_loss=0.0,
                  seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
@@ -293,7 +309,7 @@ class Dense_NN(Prediction_Model):
         loss_functions = {
             'binary' : [tf.losses.BinaryCrossentropy()],
             'classification' : [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))],
-            'regression' : [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]
+            'regression' : [AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))]
         }
         metrics = {
             'binary' : [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],
