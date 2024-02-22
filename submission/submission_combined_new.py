@@ -71,7 +71,7 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['EW'],
-                                prediction_batches=5,
+                                prediction_batches=10,
                                 verbose=2)
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
@@ -110,6 +110,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       per_object_scaling=False,
                                       custom_scaler=ns_localizer_scaler,
                                       input_dtype=np.float32,
+                                      sort_inputs=False,
                                       seed=69)
 
 print(f"Predicting NS locations using model \"{LOCALIZER_NS_DIR}\" and scaler \"{SCALER_NS_DIR}\"")
@@ -119,12 +120,12 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['NS'],
-                                prediction_batches=5,
+                                prediction_batches=10,
                                 verbose=2)
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=60.0,
+                                            threshold=50.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
@@ -176,7 +177,7 @@ pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 only_nodes=False,
                                 model_outputs=['EW_Type', 'NS_Type'],
                                 object_limit=None,
-                                prediction_batches=5,
+                                prediction_batches=10,
                                 verbose=2)
 
 #majority_df = classifier.apply_majority_method(preds_df=pred_df, location_df=df_locs)
@@ -199,7 +200,7 @@ if not DEBUG_MODE:
     print("Finished sleeping")
 else:
     print("Evaluating...")
-    ground_truth_df = pd.read_csv(Path('submission/dataset/full_labels.csv')) #!!!
+    ground_truth_df = pd.read_csv(Path('submission/dataset/full_labels.csv'))
     results.to_csv('submission/submission/debug_submission.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()

@@ -193,6 +193,7 @@ class Dense_NN(Prediction_Model):
                  mixed_dropout_lstm=0.0,
                  mixed_batchnorm=False,
                  conv1d_layers=[],
+                 convlstm1d_layers=[],
                  conv2d_layers=[],
                  lstm_layers=[],
                  dense_layers=[32,32],
@@ -231,6 +232,24 @@ class Dense_NN(Prediction_Model):
             if mixed_dropout_cnn > 0.0:
                 x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
+        for layer_id, (filters, kernel_size) in enumerate(convlstm1d_layers):
+            if layer_id == 0:
+                x = layers.Reshape((in_shape+[1]))(x)
+            x = layers.ConvLSTM1D(filters=filters, kernel_size=kernel_size, activation='tanh',
+                              return_sequences=(layer_id!=(len(convlstm1d_layers)-1)),
+                              kernel_regularizer=regularizers.l2(l2_reg),
+                              recurrent_activation='sigmoid',
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              recurrent_initializer=self.createInitializer('orthogonal'),
+                              bias_initializer=self.createInitializer('zeros'),
+                              dropout=mixed_dropout_cnn, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
+                              recurrent_dropout=0.0 # ! be aware this uses mixed dropout CNN!
+                              )(x)
+            if mixed_batchnorm:
+                x = layers.BatchNormalization()(x)
+            # if mixed_dropout_cnn > 0.0:
+            #     x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
+
         if conv2d_layers:
             x = layers.Reshape((65,12,1))(x)
         for filters, kernel_size in conv2d_layers:
@@ -253,12 +272,14 @@ class Dense_NN(Prediction_Model):
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               recurrent_initializer=self.createInitializer('orthogonal'),
-                              bias_initializer=self.createInitializer('zeros')
+                              bias_initializer=self.createInitializer('zeros'),
+                              dropout=mixed_dropout_lstm, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
+                              recurrent_dropout=mixed_dropout_lstm
                               )(x)
             if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
-            if mixed_dropout_lstm > 0.0:
-                x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
+            # if mixed_dropout_lstm > 0.0:
+            #     x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
 
         # dense stack
         x = layers.Flatten()(x)

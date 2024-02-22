@@ -131,11 +131,13 @@ class DatasetGenerator():
                  shuffle_train_val=True,
                  seed=42,
                  train_val_split=0.8,
+                 unify_value_ranges=False,
                  scale=True,
                  per_object_scaling=False,
                  custom_scaler=None,
                  node_class_multipliers={},
                  input_dtype=np.float32,
+                 sort_inputs=True,
                  verbose=1,
                  deepcopy=True):
 
@@ -180,7 +182,14 @@ class DatasetGenerator():
             val_labels_NS += list(split_df[key]['NS'].unique())
         if not (all(x in set(train_labels_EW) for x in set(val_labels_EW)) and all(x in set(train_labels_NS) for x in set(val_labels_NS))):
             print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
-        
+
+        # for some objects (221-250), Longitude and True Anomaly are shifted for some reason
+        if unify_value_ranges:
+            if verbose > 0:
+                print(f"Limiting True Anomaly to [0.0, 360.0] and Longitude to [-180.0, 180.0]")
+            for key in self._train_keys + self._val_keys:
+                split_df[key].loc[split_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] = split_df[key].loc[split_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] + 360.0
+                split_df[key].loc[split_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] = split_df[key].loc[split_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] - 360.0
         # Run sin+cos over deg fields, to bring 0deg and 360deg next to each other
         if sin_transform_features or sin_cos_transform_features:
             if verbose > 0:
@@ -318,17 +327,25 @@ class DatasetGenerator():
                 print("No Labels")
 
         # Drop all of the columns we dont need to preserve memory
-        columns_to_keep = ['ObjectID', 'TimeIndex'] + self._input_features + self._overview_features_mean + self._overview_features_std + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
+        self._input_features = list(dict.fromkeys(self._input_features)) # remove duplicates
+        if sort_inputs:
+            # sort to improve compatibility between models trained from different sources (namely sweeper and notebook)
+            self._input_features.sort()
+            self._overview_features_mean.sort()
+            self._overview_features_std.sort()
+        input_cols = list(dict.fromkeys(self._input_features + self._overview_features_mean + self._overview_features_std)) # remove duplicates
+        columns_to_keep = ['ObjectID', 'TimeIndex'] + input_cols + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
                                                    'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location'] if with_labels else [])
+        columns_to_keep = list(dict.fromkeys(columns_to_keep)) # remove duplicates
         columns_to_remove = [item for item in split_df[self._train_keys[0]].columns if item not in columns_to_keep]
         if verbose>1:
                 print(f"Dropping {len(columns_to_remove)} unused columns now.")
         self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in split_df.items()}
         
         # change dtypes in the dataframes
+       
         for key, value in self._preprocessed_dataframes.items():
-            value[self._input_features] = value[self._input_features].astype(input_dtype)
-        self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in split_df.items()}
+            value[input_cols] = value[input_cols].astype(input_dtype)
 
         split_df = None #remove reference to possibly save memory
 
@@ -355,37 +372,30 @@ class DatasetGenerator():
                                   keep_label_stride,
                                   input_stride,
                                   padding):
+        
+        if stride > 1 and keep_label_stride > 1:
+            print("Warning: stride > 1 and keep_label_stride > 1 may lead to unexpected or erronous behavior!")
 
         window_size = input_history_steps + input_future_steps
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
-        strided_obj_lens = {key:int(np.ceil(obj_len/stride)) for key, obj_len in obj_lens.items()}
-        n_rows = np.sum([ln for ln in strided_obj_lens.values()]) # consider stride
+
+        # "Reserve" np arrays (this is efficient but does not actually block the memory)
+        n_rows = np.sum([ln for ln in obj_lens.values()]) # consider stride
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
-        node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
-        ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
+
+        if only_nodes:
+            node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
+        if only_ew_sk:
+            ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
+        
         current_row = 0
         keys.sort()
-        for key in keys:
+        for key in tqdm(keys):
             extended_df = split_df[key]
-            strided_obj_len = strided_obj_lens[key]
 
-            if overview_features_mean or overview_features_std:
-                # Add overview features which are identical everywhere inside on object and capture a view of the entire feature development
-                n_segments = int(np.ceil(window_size/input_stride))
-                segment_length=len(extended_df)//int(np.ceil(window_size/input_stride))
-                object_border = (len(extended_df)%n_segments)//2 # we have to cut off a bit on the left and right
-                
-                #mean
-                segmented_features_mean=np.split(extended_df[overview_features_mean].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
-                mean_vals = np.mean(segmented_features_mean, axis=1)
-                inputs[current_row:current_row+strided_obj_len,:,len(input_features):len(input_features)+len(overview_features_mean)] = mean_vals
-                #std
-                segmented_features_std=np.split(extended_df[overview_features_std].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
-                std_vals = np.std(segmented_features_std, axis=1)
-                inputs[current_row:current_row+strided_obj_len,:,len(input_features)+len(overview_features_mean):] = std_vals
-
+            # First, add padding
             if padding != 'none':
                 extended_df = split_df[key].copy()
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
@@ -401,22 +411,65 @@ class DatasetGenerator():
                 else:
                     print(f"Warning: unknown padding method \"{padding}\"! Using zero-padding instead")
                     extended_df.fillna(0.0, inplace=True)
-            
-            inputs[current_row:current_row+strided_obj_len,:,:len(input_features)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[::stride,::input_stride,:,]
+
+            # Get the labels. This is necessary here because they may be needed for the keep_label_stride
+            obj_labels = None
             if label_features:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
                     new_dt = self._input_dtype
-                labels[current_row:current_row+strided_obj_len] = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)[::stride]
+                obj_labels = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)
+
+            # determine which indices to keep based on stride
+            obj_indices_to_keep = np.zeros((obj_lens[key]), dtype=np.int32)
+            if stride > 1:
+                obj_indices_to_keep[::stride] = 1
+            elif keep_label_stride > 1:
+                obj_indices_to_keep[::keep_label_stride] = 1
+                obj_indices_to_keep[np.argwhere(obj_labels[:,:] > 0.0)[:,0]] = 1
+            else:
+                obj_indices_to_keep[:] = 1
+            obj_indices_to_keep = np.argwhere(obj_indices_to_keep==1)[:,0]
+
+            # the final object length
+            strided_obj_len = len(obj_indices_to_keep)
+
+            # Add overview features based on the original, non-strided and non-padded df
+            if overview_features_mean or overview_features_std:
+                # Add overview features which are identical everywhere inside on object and capture a view of the entire feature development
+                # here, intentionally do not use the extended df (we dont want padding in the overview)
+                n_segments = int(np.ceil(window_size/input_stride))
+                segment_length=len(split_df[key])//int(np.ceil(window_size/input_stride))
+                object_border = (len(split_df[key])%n_segments)//2 # we have to cut off a bit on the left and right
+                
+                #mean
+                segmented_features_mean=np.split(split_df[key][overview_features_mean].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
+                mean_vals = np.mean(segmented_features_mean, axis=1)
+                inputs[current_row:current_row+strided_obj_len,:,len(input_features):len(input_features)+len(overview_features_mean)] = mean_vals
+                #std
+                segmented_features_std=np.split(split_df[key][overview_features_std].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
+                std_vals = np.std(segmented_features_std, axis=1)
+                inputs[current_row:current_row+strided_obj_len,:,len(input_features)+len(overview_features_mean):] = std_vals
+            
+            # determine the inputs, labels and identifiers of the indices we want to keep
+            inputs[current_row:current_row+strided_obj_len,:,:len(input_features)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,]
+            labels[current_row:current_row+strided_obj_len] = obj_labels[obj_indices_to_keep] if label_features else 0.0
+            element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep,:]
+
             if only_nodes:
-                node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
+                node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
             if only_ew_sk:
-                ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride]
-            element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[::stride,:]
+                ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
+
+            # advance to next object
             current_row+=strided_obj_len
 
             del extended_df # try to preserve some memory
-        gc.collect() # try to preserve some memory
+
+        # limit the arrays to the actual "filled" portion
+        inputs = inputs[:current_row]
+        labels = labels[:current_row]
+        element_identifiers = element_identifiers[:current_row]
 
         if only_ew_sk:
             # keep all fields where EW is stationkeeping
@@ -438,27 +491,8 @@ class DatasetGenerator():
             inputs = inputs[nodes]
             labels = labels[nodes]
             element_identifiers = element_identifiers[nodes]
-
-            # TEMPORARY
-            #print("Warning: temporary change to only use initial nodes in ds!")
-            # initial_nodes = np.argwhere(element_identifiers[:,1] == 0)[:,0]
-            # inputs = inputs[initial_nodes]
-            # labels = labels[initial_nodes]
-            # element_identifiers = element_identifiers[initial_nodes]
-
-        if keep_label_stride>1:
-            if stride > 1:
-                print("Warning: normal and keep-label stride applied simultaneously; Use only one!")
-            # create a strided binary array that is 1 at the stride interval and wherever labels are
-            stride_idcs = np.zeros((labels.shape[0]), dtype=np.int32)
-            stride_idcs[::keep_label_stride] = 1
-            stride_idcs[np.argwhere(labels[:,:] > 0.0)[:,0]] = 1
-            indices_to_keep = np.argwhere(stride_idcs==1)[:,0]
-            inputs = inputs[indices_to_keep]
-            labels = labels[indices_to_keep]
-            element_identifiers = element_identifiers[indices_to_keep]
             
-
+        # finally, create the dataset
         datasets = [Dataset.from_tensor_slices((inputs))]
         if label_features:
             datasets += [Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))]
@@ -632,6 +666,7 @@ class DatasetGenerator():
 
         # Take some element
         print(inputs.shape, identifiers.shape)
+        
         inputs=None
         identifiers=None
     

@@ -49,15 +49,19 @@ def parameter_sweep(config=None):
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
-                                                overview_features=config.ds_gen['overview_features'],
+                                                overview_features_mean=config.ds_gen['overview_features_mean'],
+                                                overview_features_std=config.ds_gen['overview_features_std'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
                                                 add_yeartime_feature=config.ds_gen['add_yeartime_feature'],
+                                                add_linear_timeindex=config.ds_gen['add_linear_timeindex'],
                                                 with_labels=True,
                                                 pad_location_labels=config.ds_gen['pad_location_labels'],
-                                                nonbinary_padding=[100.0, 70.0, 49.0, 34.0, 24.0],
+                                                nonbinary_padding=config.ds_gen['nonbinary_padding'],
                                                 train_val_split=0.8,
                                                 input_stride=config.ds_gen['input_stride'],
                                                 padding='zero', #!
+                                                scale=True,
+                                                unify_value_ranges=True,
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
                                                 node_class_multipliers={'ID':config.ds_gen['class_multiplier_ID'],
                                                                         'IK':config.ds_gen['class_multiplier_IK'],
@@ -70,7 +74,7 @@ def parameter_sweep(config=None):
                                                 deepcopy=False)
         # print('Trn-keys:', ds_gen.train_keys)
         # print('Val-keys:', ds_gen.val_keys)
-        train_ds, val_ds = ds_gen.get_datasets(1024,
+        train_ds, val_ds = ds_gen.get_datasets(2048,
                                                label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
                                                stride=config.ds_gen['stride'],
@@ -130,28 +134,39 @@ def parameter_sweep(config=None):
                                 object_limit=None,
                                 prediction_batches=n_batches,
                                 verbose=2)
-        subm_df = localizer.postprocess_predictions(preds_df=preds_df,
-                                            dirs=[direction],
-                                            threshold=60.0,
-                                            add_initial_node=True,
-                                            clean_consecutives=True,
-                                            deepcopy=False)
-
-        evaluation_results_v = localizer.evaluate_localizer(subm_df=subm_df,
-                                                        gt_path=challenge_data_dir / 'train_labels.csv',
-                                                        object_ids=list(map(int, ds_gen.val_keys)),
-                                                        dirs=[direction],
-                                                        with_initial_node=False,
-                                                        return_scores=True,
-                                                        verbose=2)
         
-        for key,value in evaluation_results_v.items():
+        # Try different thresholds, and save the best
+        best_results = {'F2' : 0.0, 'Threshold' : 0.0}
+        peak_nb_padding = np.max(config.ds_gen['nonbinary_padding'])
+        for threshold in np.linspace(peak_nb_padding*0.3, peak_nb_padding*0.80, 11):
+            print("-------------------------------")
+            print(f"Threshold {threshold:.2f}:")
+            subm_df = localizer.postprocess_predictions(preds_df=preds_df,
+                                                dirs=[direction],
+                                                threshold=threshold,
+                                                add_initial_node=True,
+                                                clean_consecutives=True,
+                                                deepcopy=True)
+
+            evaluation_results_v = localizer.evaluate_localizer(subm_df=subm_df,
+                                                            gt_path=challenge_data_dir / 'train_labels.csv',
+                                                            object_ids=list(map(int, ds_gen.val_keys)),
+                                                            dirs=[direction],
+                                                            with_initial_node=False,
+                                                            return_scores=True,
+                                                            verbose=2)
+            if evaluation_results_v['F2'] > best_results['F2']:
+                evaluation_results_v['Threshold'] = threshold
+                evaluation_results_v['Threshold_Fraction'] = threshold/peak_nb_padding
+                best_results = evaluation_results_v
+        print("-------------------------------")
+        for key,value in best_results.items():
             wandb.define_metric(key, summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
             wandb.run.summary[f'{key}'] = value
 
         train_object_limit = 500
 
-        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches):")
+        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches) with threshold {peak_nb_padding*0.6}:")
         preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 model=model,
                                 train=True,
@@ -163,7 +178,7 @@ def parameter_sweep(config=None):
         
         subm_df = localizer.postprocess_predictions(preds_df=preds_df,
                                             dirs=[direction],
-                                            threshold=60.0,
+                                            threshold=peak_nb_padding*0.6,
                                             add_initial_node=True,
                                             clean_consecutives=True,
                                             deepcopy=False)
@@ -196,44 +211,56 @@ sweep_configuration = {
             "parameters" : {
                 'RAAN' : {"values": ['non']},
                 'Argument_of_Periapsis' : {"values": ['sin']},
-                'True_Anomaly' : {"values": ['sin']},
+                'True_Anomaly' : {"values": ['diff']},
                 'Longitude' : {"values": ['sin']},
             }
         },
         "ds_gen" : {
             "parameters" : {
-            'overview_features' : {"values" : [['Longitude (sin)', 'RAAN (deg)', 'Eccentricity'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Argument of Periapsis (sin)'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Inclination (deg)'],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Semimajor Axis (m)']]},
+            'overview_features_mean' : {"values" : [['Longitude (sin)', 'RAAN (deg)']]},
+            'overview_features_std' : {"values" : [['Latitude (deg)']]},
             "pad_location_labels" : {"values": [0]},
+            "nonbinary_padding" : {"values": [[1000.0, 700.0, 500.0, 350.0, 250.0],
+                                              [110.0, 70.0, 49.0, 34.0, 24.0],
+                                              [100.0, 50.0, 25.0, 12.5, 6.25],
+                                              [100.0, 100.0, 50.0],
+                                              [100.0, 75.0, 50.0],
+                                              [100.0, 50.0],
+                                              [100.0],
+                                              [50.0, 30.0, 10.0],
+                                              [50.0, 50.0, 50.0],
+                                              [50.0, 45.0, 40.0, 35.0, 30.0, 25.0, 20.0, 15.0, 10.0, 5.0],
+                                              [10.0, 8.0, 6.0, 4.0, 2.0],
+                                              [10.0],
+                                              ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [5]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [8]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [1.5]}, #!!
+            "add_linear_timeindex" : {"values": [True]},
+            "class_multiplier_ID" : {"values": [1.0, 1.5]},
             "class_multiplier_IK" : {"values": [1.0]},
-            "input_history_steps" : {"values": [128]},
-            "input_future_steps" : {"values": [128]},
+            "input_history_steps" : {"values": [256]},
+            "input_future_steps" : {"values": [256]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[64,6],[64,6],[48,6]]
+                                          [[48,3],[64,3],[48,3]]
                                           ]},
             "conv2d_layers" : {"values": [[]]},
-            "dense_layers" : {"values": [[64,64]]},
+            "dense_layers" : {"values": [[64,32]]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm" : {"values": [True]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.05]},
+            "mixed_dropout_cnn" : {"values": [0.1]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.003,3000,0.9]]},
+            "lr_scheduler" : {"values": [[0.005,6000,0.9]]},
             "seed" : {"values": [0]},
             }
         },

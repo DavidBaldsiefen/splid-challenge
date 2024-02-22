@@ -86,7 +86,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
     gc.collect()
 
     all_identifiers = np.concatenate(all_identifiers)
-    all_predictions = np.concatenate(all_predictions, axis=1)
+    all_predictions = np.concatenate(all_predictions, axis=0 if len(model_outputs)==1 else 1)
 
     df = pd.DataFrame(np.concatenate([all_identifiers.reshape(-1,2)], axis=1), columns=['ObjectID', 'TimeIndex'], dtype=np.int32)
 
