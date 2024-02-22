@@ -1,7 +1,7 @@
 import pandas as pd
 import random
 import numpy as np
-from tensorflow.data import Dataset
+import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from pathlib import Path
 from tqdm import tqdm
@@ -371,7 +371,8 @@ class DatasetGenerator():
                                   stride,
                                   keep_label_stride,
                                   input_stride,
-                                  padding):
+                                  padding,
+                                  verbose=1):
         
         if stride > 1 and keep_label_stride > 1:
             print("Warning: stride > 1 and keep_label_stride > 1 may lead to unexpected or erronous behavior!")
@@ -392,7 +393,7 @@ class DatasetGenerator():
         
         current_row = 0
         keys.sort()
-        for key in tqdm(keys):
+        for key in tqdm(keys, disable=verbose==0):
             extended_df = split_df[key]
 
             # First, add padding
@@ -493,22 +494,18 @@ class DatasetGenerator():
             element_identifiers = element_identifiers[nodes]
             
         # finally, create the dataset
-        datasets = [Dataset.from_tensor_slices((inputs))]
-        if label_features:
-            datasets += [Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))]
-        if with_identifier:
-            datasets += [Dataset.from_tensor_slices((element_identifiers))]
-        
+        with tf.device("CPU"):
+            dataset = tf.data.Dataset.from_tensor_slices((inputs, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}, element_identifiers) if (label_features and with_identifier) else
+                                                (inputs, element_identifiers) if ((not label_features) and with_identifier) else
+                                                (inputs, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))
+
         # Do some garbage collection - StackOverflow is not sure if this will help or not
         del labels
         del inputs
         del element_identifiers
         gc.collect()
 
-        if len(datasets)>1:
-            return Dataset.zip(tuple(datasets))
-        else:
-            return datasets[0]
+        return dataset
         
     def create_stateful_ds_from_dataframes(self, split_df, keys, input_features, label_features,
                                   with_identifier, input_history_steps, input_future_steps, stride,
@@ -557,11 +554,11 @@ class DatasetGenerator():
             del extended_df # try to preserve some memory
         gc.collect() # try to preserve some memory
 
-        datasets = [Dataset.from_tensor_slices((inputs))]
+        datasets = [tf.data.Dataset.from_tensor_slices((inputs))]
         if label_features:
-            datasets += [Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))]
+            datasets += [tf.data.Dataset.from_tensor_slices(({feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))]
         if with_identifier:
-            datasets += [Dataset.from_tensor_slices((element_identifiers))]
+            datasets += [tf.data.Dataset.from_tensor_slices((element_identifiers))]
         
         # Do some garbage collection - StackOverflow is not sure if this will help or not
         del labels
@@ -570,7 +567,7 @@ class DatasetGenerator():
         gc.collect()
 
         if len(datasets)>1:
-            return Dataset.zip(tuple(datasets)).batch(len(keys), drop_remainder=False)
+            return tf.data.Dataset.zip(tuple(datasets)).batch(len(keys), drop_remainder=False)
         else:
             return datasets[0].batch(len(keys))
         
@@ -612,7 +609,7 @@ class DatasetGenerator():
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
                      with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
-                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1):
+                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1, verbose=0):
         
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
@@ -631,8 +628,10 @@ class DatasetGenerator():
                                                 stride=stride,
                                                 keep_label_stride=keep_label_stride,
                                                 input_stride=self._input_stride,
-                                                padding=self._padding)
+                                                padding=self._padding,
+                                                verbose=verbose)
         datasets = [train_ds]
+        gc.collect()
         if val_keys:
             val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
                                                     keys=val_keys,
@@ -648,7 +647,8 @@ class DatasetGenerator():
                                                     stride=stride,
                                                     keep_label_stride=keep_label_stride,
                                                     input_stride=self._input_stride,
-                                                    padding=self._padding)
+                                                    padding=self._padding,
+                                                    verbose=verbose)
             datasets.append(val_ds)
             
         if shuffle:
