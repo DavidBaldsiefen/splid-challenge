@@ -69,7 +69,7 @@ class Prediction_Model():
         loss_keys = [k for k in hist_keys if 'loss' in k]
         acc_keys = [k for k in hist_keys if 'accuracy' in k]
         other_keys = custom_keys
-        fig, axes = plt.subplots(nrows=1, ncols=2 if not other_keys else 3, figsize=(6 if not other_keys else 9,3))
+        fig, axes = plt.subplots(nrows=1, ncols=2 if not other_keys else 3, figsize=(10 if not other_keys else 14,3))
         plt.tight_layout()
         for key in loss_keys:
             axes[0].plot(hist.history[key][1:], label=str(key), linestyle='dashed' if 'val' in key else '-')
@@ -192,7 +192,7 @@ class Dense_NN(Prediction_Model):
                  mixed_dropout_cnn=0.0,
                  mixed_dropout_lstm=0.0,
                  mixed_batchnorm=False,
-                 conv1d_layers=[],
+                 conv1d_layers=[], # [filters, kernel_size, kernel_stride, dilation_rate]
                  convlstm1d_layers=[],
                  conv2d_layers=[],
                  lstm_layers=[],
@@ -220,8 +220,12 @@ class Dense_NN(Prediction_Model):
             x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
         # CNN stack
-        for filters, kernel_size in conv1d_layers:
-            x = layers.Conv1D(filters, kernel_size, activation=None,
+        for filters, kernel_size, kernel_stride, dilation_rate, maxpool in conv1d_layers:
+            x = layers.Conv1D(filters,
+                              kernel_size,
+                              strides=kernel_stride,
+                              dilation_rate=dilation_rate,
+                              activation=None,
                               kernel_regularizer=regularizers.l2(l2_reg),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
@@ -229,6 +233,8 @@ class Dense_NN(Prediction_Model):
             if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
+            if maxpool>1:
+                x = layers.MaxPool1D(maxpool)(x)
             if mixed_dropout_cnn > 0.0:
                 x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
@@ -243,7 +249,7 @@ class Dense_NN(Prediction_Model):
                               recurrent_initializer=self.createInitializer('orthogonal'),
                               bias_initializer=self.createInitializer('zeros'),
                               dropout=mixed_dropout_cnn, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
-                              recurrent_dropout=0.0 # ! be aware this uses mixed dropout CNN!
+                              recurrent_dropout=0.0 # 0.0 as I though this would allow for GPU processing... nope
                               )(x)
             if mixed_batchnorm:
                 x = layers.BatchNormalization()(x)
@@ -319,18 +325,17 @@ class Dense_NN(Prediction_Model):
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
         # create optimizer
-        optimizer=keras.optimizers.Adam()
-        if lr_scheduler:
-            if len(lr_scheduler) == 2:
-                lr_scheduler = [0.001] + lr_scheduler # add learning rate
-            lr_schedule = optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True)
-            optimizer=keras.optimizers.Adam(lr_schedule)
+        optimizer=keras.optimizers.Adam(learning_rate=0.001 if not lr_scheduler else
+                                        lr_scheduler[0] if len(lr_scheduler)==1 else
+                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
+                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
 
         # select losses and metrics
         loss_functions = {
             'binary' : [tf.losses.BinaryCrossentropy()],
             'classification' : [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))],
-            'regression' : [AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))]
+            'regression' : [[AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))] if asymmetric_loss != 0.0 else
+                            [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]]
         }
         metrics = {
             'binary' : [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],

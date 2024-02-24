@@ -223,7 +223,7 @@ sweep_configuration = {
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[32,6],[32,6],[32,6]]
+                                          [[32,6,1],[32,6,1],[32,6,1]]
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},

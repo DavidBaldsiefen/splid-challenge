@@ -112,6 +112,7 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
 class DatasetGenerator():
     def __init__(self,
                  split_df,
+                 exclude_objects=[], # option to exclude certain objects (after the train-val split has been performed) which may be erronous
                  input_history_steps=10, # how many history timesteps we get as input, including the current one
                  input_future_steps=0, # how many future timesteps we get as input
                  non_transform_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
@@ -164,6 +165,14 @@ class DatasetGenerator():
         split_idx = int(len(keys_list) * train_val_split)
         self._train_keys = keys_list[:split_idx]
         self._val_keys = keys_list[split_idx:]
+
+        # exclude certain objects, e.g. if it is known that they are erronous
+        if exclude_objects:
+            self._train_keys = [key for key in self._train_keys if not (key in exclude_objects)]
+            self._val_keys = [key for key in self._val_keys if not (key in exclude_objects)]
+            for key in exclude_objects:
+                split_df.pop(key, None)
+
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {self._padding}")
@@ -381,7 +390,8 @@ class DatasetGenerator():
         obj_lens = {key:len(split_df[key]) - (1 if padding != 'none' else (window_size-1)) for key in keys} # the last row (ES) is removed
 
         # "Reserve" np arrays (this is efficient but does not actually block the memory)
-        n_rows = np.sum([ln for ln in obj_lens.values()]) # consider stride
+        n_rows = np.sum([ln for ln in obj_lens.values()])
+        n_rows = n_rows//(stride+keep_label_stride-1)+30000 # consider stride with some buffer just to be sure
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
@@ -419,6 +429,8 @@ class DatasetGenerator():
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
                     new_dt = self._input_dtype
+                elif (('EW_Node_Location' in label_features) or ('NS_Node_Location' in label_features)):
+                    new_dt = np.bool_
                 obj_labels = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)
 
             # determine which indices to keep based on stride
@@ -653,6 +665,7 @@ class DatasetGenerator():
             
         if shuffle:
             print("Train-DS Cardinality:", datasets[0].cardinality())
+            print("Val-DS Cardinality:", datasets[1].cardinality())
             datasets = [ds.shuffle(ds.cardinality(), seed=self._seed) for ds in datasets]
         if batch_size is not None:
             datasets = [ds.batch(batch_size) for ds in datasets]

@@ -44,7 +44,7 @@ def parameter_sweep(config=None):
             elif value == 'sin_cos': sin_cos_transform_features += [ft_name]
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
 
-        ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+        ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
@@ -70,11 +70,12 @@ def parameter_sweep(config=None):
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
+                                                sort_inputs=True,
                                                 seed=181,
                                                 deepcopy=False)
         # print('Trn-keys:', ds_gen.train_keys)
         # print('Val-keys:', ds_gen.val_keys)
-        train_ds, val_ds = ds_gen.get_datasets(2048,
+        train_ds, val_ds = ds_gen.get_datasets(1024,
                                                label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
                                                stride=config.ds_gen['stride'],
@@ -104,7 +105,7 @@ def parameter_sweep(config=None):
         hist = model.fit(train_ds,
                          val_ds=val_ds,
                          epochs=100,
-                         early_stopping=15,
+                         early_stopping=20,
                          target_metric='val_loss',
                          plot_hist=False,
                          callbacks=[WandbMetricsLogger()],
@@ -220,27 +221,17 @@ sweep_configuration = {
             'overview_features_mean' : {"values" : [['Longitude (sin)', 'RAAN (deg)']]},
             'overview_features_std' : {"values" : [['Latitude (deg)']]},
             "pad_location_labels" : {"values": [0]},
-            "nonbinary_padding" : {"values": [[1000.0, 700.0, 500.0, 350.0, 250.0],
-                                              [110.0, 70.0, 49.0, 34.0, 24.0],
-                                              [100.0, 50.0, 25.0, 12.5, 6.25],
-                                              [100.0, 100.0, 50.0],
-                                              [100.0, 75.0, 50.0],
-                                              [100.0, 50.0],
-                                              [100.0],
-                                              [50.0, 30.0, 10.0],
-                                              [50.0, 50.0, 50.0],
-                                              [50.0, 45.0, 40.0, 35.0, 30.0, 25.0, 20.0, 15.0, 10.0, 5.0],
-                                              [10.0, 8.0, 6.0, 4.0, 2.0],
-                                              [10.0],
+            "nonbinary_padding" : {"values": [
+                                              [110.0, 70.0, 49.0, 34.0, 24.0]
                                               ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [5]},
-            "input_stride" : {"values": [8]},
+            "input_stride" : {"values": [4]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [True]},
-            "class_multiplier_ID" : {"values": [1.0, 1.5]},
+            "class_multiplier_ID" : {"values": [1.0]},
             "class_multiplier_IK" : {"values": [1.0]},
             "input_history_steps" : {"values": [256]},
             "input_future_steps" : {"values": [256]},
@@ -249,7 +240,11 @@ sweep_configuration = {
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[48,3],[64,3],[48,3]]
+                                          [[48,6,2,1,1],[48,3,1,1,1],[48,3,1,1,1]],
+                                          [[48,6,2,1,1],[48,3,1,1,1]],
+                                          #[[48,8,2]],
+                                          [[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
+                                          [[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
@@ -260,7 +255,7 @@ sweep_configuration = {
             "mixed_dropout_dense" : {"values": [0.05]},
             "mixed_dropout_cnn" : {"values": [0.1]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.005,6000,0.9]]},
+            "lr_scheduler" : {"values": [[0.005, 7000, 0.9]]},
             "seed" : {"values": [0]},
             }
         },
@@ -268,7 +263,6 @@ sweep_configuration = {
     
 }
 
-# TODO: there used to be (?) a memory leak somewhere here
 ##########################################################
 # Start the actual sweep
 wandb.login()
