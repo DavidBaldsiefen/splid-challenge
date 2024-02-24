@@ -391,13 +391,11 @@ class DatasetGenerator():
 
         # "Reserve" np arrays (this is efficient but does not actually block the memory)
         n_rows = np.sum([ln for ln in obj_lens.values()])
-        n_rows = n_rows//(stride+keep_label_stride-1)+30000 # consider stride with some buffer just to be sure
+        n_rows = n_rows//(stride+keep_label_stride-1)+30000 if not keep_label_stride else 15000 # consider stride with some buffer just to be sure
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
 
-        if only_nodes:
-            node_location_markers = np.zeros(shape=(n_rows, 2), dtype=np.int32)
         if only_ew_sk:
             ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
         
@@ -425,6 +423,7 @@ class DatasetGenerator():
 
             # Get the labels. This is necessary here because they may be needed for the keep_label_stride
             obj_labels = None
+            obj_locations = None
             if label_features:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
@@ -432,15 +431,19 @@ class DatasetGenerator():
                 elif (('EW_Node_Location' in label_features) or ('NS_Node_Location' in label_features)):
                     new_dt = np.bool_
                 obj_labels = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)
-
+                dirs_locs = (['EW_Node_Location'] if any('EW' in ft for ft in label_features) else []) + (['NS_Node_Location'] if any('NS' in ft for ft in label_features) else [])
+                obj_locations = extended_df[dirs_locs][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.float32)
+            
             # determine which indices to keep based on stride
             obj_indices_to_keep = np.zeros((obj_lens[key]), dtype=np.int32)
             if stride > 1:
                 obj_indices_to_keep[::stride] = 1
             elif keep_label_stride > 1:
                 obj_indices_to_keep[::keep_label_stride] = 1
-                obj_indices_to_keep[np.argwhere(obj_labels[:,:] > 0.0)[:,0]] = 1
-            else:
+                obj_indices_to_keep[np.argwhere(obj_locations[:,:] > 0.0)[:,0]] = 1
+            elif only_nodes:
+                obj_indices_to_keep[np.argwhere(obj_locations[:,:] > 0.0)[:,0]] = 1
+            else: 
                 obj_indices_to_keep[:] = 1
             obj_indices_to_keep = np.argwhere(obj_indices_to_keep==1)[:,0]
 
@@ -469,8 +472,6 @@ class DatasetGenerator():
             labels[current_row:current_row+strided_obj_len] = obj_labels[obj_indices_to_keep] if label_features else 0.0
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep,:]
 
-            if only_nodes:
-                node_location_markers[current_row:current_row+strided_obj_len] = extended_df[['EW_Node_Location', 'NS_Node_Location']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
             if only_ew_sk:
                 ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
 
@@ -492,18 +493,18 @@ class DatasetGenerator():
             labels = labels[ew_sk_fields]
             element_identifiers = element_identifiers[ew_sk_fields]
             
-        # if wanted, only preserve items with nodes
-        if only_nodes:
-            # identify which direction we want
-            ew_nodes = np.argwhere(node_location_markers[:,0] == 1)[:,0]
-            ns_nodes = np.argwhere(node_location_markers[:,1] == 1)[:,0]
-            with_ew = any('EW' in ft for ft in label_features)
-            with_ns = any('NS' in ft for ft in label_features)
-            nodes = [] + ([ew_nodes] if with_ew else []) + ([ns_nodes] if with_ns else [])
-            nodes = np.sort(np.unique(np.concatenate(nodes)))
-            inputs = inputs[nodes]
-            labels = labels[nodes]
-            element_identifiers = element_identifiers[nodes]
+        # # if wanted, only preserve items with nodes
+        # if only_nodes:
+        #     # identify which direction we want
+        #     ew_nodes = np.argwhere(node_location_markers[:,0] == 1)[:,0]
+        #     ns_nodes = np.argwhere(node_location_markers[:,1] == 1)[:,0]
+        #     with_ew = any('EW' in ft for ft in label_features)
+        #     with_ns = any('NS' in ft for ft in label_features)
+        #     nodes = [] + ([ew_nodes] if with_ew else []) + ([ns_nodes] if with_ns else [])
+        #     nodes = np.sort(np.unique(np.concatenate(nodes)))
+        #     inputs = inputs[nodes]
+        #     labels = labels[nodes]
+        #     element_identifiers = element_identifiers[nodes]
             
         # finally, create the dataset
         with tf.device("CPU"):
