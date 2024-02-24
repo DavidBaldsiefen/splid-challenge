@@ -1,4 +1,5 @@
 import wandb
+import tensorflow as tf
 from wandb.keras import WandbMetricsLogger
 from pathlib import Path
 #from pympler.tracker import SummaryTracker
@@ -10,6 +11,11 @@ from base import datahandler, prediction_models, utils, localizer
 
 
 direction='NS'
+
+class ClearMemoryCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        gc.collect()
+        tf.keras.backend.clear_session()
 
 def parameter_sweep(config=None):
     with wandb.init(config=config):
@@ -108,7 +114,7 @@ def parameter_sweep(config=None):
                          early_stopping=20,
                          target_metric='val_loss',
                          plot_hist=False,
-                         callbacks=[WandbMetricsLogger()],
+                         callbacks=[WandbMetricsLogger(), ClearMemoryCallback()],
                          verbose=2)
 
         file_path = wandb.run.dir+"\\model_" + wandb.run.id + ".hdf5"

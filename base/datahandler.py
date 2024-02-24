@@ -379,6 +379,7 @@ class DatasetGenerator():
                                   input_future_steps,
                                   stride,
                                   keep_label_stride,
+                                  stride_offset,
                                   input_stride,
                                   padding,
                                   verbose=1):
@@ -391,16 +392,18 @@ class DatasetGenerator():
 
         # "Reserve" np arrays (this is efficient but does not actually block the memory)
         n_rows = np.sum([ln for ln in obj_lens.values()])
-        n_rows = n_rows//(stride+keep_label_stride-1)+30000 if not keep_label_stride else 15000 # consider stride with some buffer just to be sure
+        n_rows = (n_rows//(stride+keep_label_stride-1)+150000) if (not only_nodes) else 15000 # consider stride with some buffer just to be sure
         inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
 
         if only_ew_sk:
-            ew_sk_markers = np.zeros(shape=(n_rows), dtype=np.int32)
+            ew_sk_markers = np.empty(shape=(n_rows))
+            ew_sk_markers.fill(np.nan)
         
         current_row = 0
-        keys.sort()
+        #keys = list(keys, key=int) 
+        keys.sort(key=int) # shuffling comes later, this helps with debugging
         for key in tqdm(keys, disable=verbose==0):
             extended_df = split_df[key]
 
@@ -432,18 +435,21 @@ class DatasetGenerator():
                     new_dt = np.bool_
                 obj_labels = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)
                 dirs_locs = (['EW_Node_Location'] if any('EW' in ft for ft in label_features) else []) + (['NS_Node_Location'] if any('NS' in ft for ft in label_features) else [])
+                if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
+                    dirs_locs = ['EW_Node_Location_nb', 'NS_Node_Location_nb']
+                    #dirs_locs = [ft + '_nb' for ft in dirs_locs] # TODO: try actually training with both locations
                 obj_locations = extended_df[dirs_locs][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.float32)
             
             # determine which indices to keep based on stride
             obj_indices_to_keep = np.zeros((obj_lens[key]), dtype=np.int32)
             if stride > 1:
-                obj_indices_to_keep[::stride] = 1
+                obj_indices_to_keep[stride_offset::stride] = 1
             elif keep_label_stride > 1:
-                obj_indices_to_keep[::keep_label_stride] = 1
+                obj_indices_to_keep[stride_offset::keep_label_stride] = 1
                 obj_indices_to_keep[np.argwhere(obj_locations[:,:] > 0.0)[:,0]] = 1
             elif only_nodes:
                 obj_indices_to_keep[np.argwhere(obj_locations[:,:] > 0.0)[:,0]] = 1
-            else: 
+            else:
                 obj_indices_to_keep[:] = 1
             obj_indices_to_keep = np.argwhere(obj_indices_to_keep==1)[:,0]
 
@@ -488,6 +494,7 @@ class DatasetGenerator():
         if only_ew_sk:
             # keep all fields where EW is stationkeeping
             ew_nk_label = self._type_label_encoder.transform(['NK'])[0]
+            ew_sk_markers = ew_sk_markers[:current_row]
             ew_sk_fields = np.argwhere(ew_sk_markers != ew_nk_label)[:,0]
             inputs = inputs[ew_sk_fields]
             labels = labels[ew_sk_fields]
@@ -622,7 +629,7 @@ class DatasetGenerator():
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
                      with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
-                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1, verbose=0):
+                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1, stride_offset=0, verbose=0):
         
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
@@ -639,6 +646,7 @@ class DatasetGenerator():
                                                 input_history_steps=self._input_history_steps,
                                                 input_future_steps=self._input_future_steps,
                                                 stride=stride,
+                                                stride_offset=stride_offset,
                                                 keep_label_stride=keep_label_stride,
                                                 input_stride=self._input_stride,
                                                 padding=self._padding,
@@ -658,6 +666,7 @@ class DatasetGenerator():
                                                     input_history_steps=self._input_history_steps,
                                                     input_future_steps=self._input_future_steps,
                                                     stride=stride,
+                                                    stride_offset=stride_offset,
                                                     keep_label_stride=keep_label_stride,
                                                     input_stride=self._input_stride,
                                                     padding=self._padding,
