@@ -10,7 +10,7 @@ import numpy as np
 from base import datahandler, prediction_models, utils, localizer
 
 
-direction='NS'
+direction='EW'
 
 class ClearMemoryCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -20,6 +20,11 @@ class ClearMemoryCallback(tf.keras.callbacks.Callback):
 def parameter_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
+
+        # for key in ['Precision', 'Recall', 'F2', 'TP', 'RMSE', 'FP', 'FN']:
+        #     wandb.define_metric(f'{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
+        #     wandb.define_metric(f'val/{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
+        #     wandb.define_metric(f'train/{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
 
         # =================================Data Loading & Preprocessing================================================
 
@@ -34,10 +39,14 @@ def parameter_sweep(config=None):
         # Create Dataset
         utils.set_random_seed(42)
 
-        non_transform_features = ['Eccentricity',
-                                    'Semimajor Axis (m)',
-                                    'Inclination (deg)',
-                                    'Latitude (deg)']
+        non_transform_features =['Eccentricity',
+                                'Semimajor Axis (m)',
+                                'Inclination (deg)',
+                                'RAAN (deg)',
+                                'Argument of Periapsis (deg)',
+                                #'True Anomaly (deg)',
+                                #'Longitude (deg)',
+                                'Latitude (deg)']
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
@@ -84,8 +93,8 @@ def parameter_sweep(config=None):
         train_ds, val_ds = ds_gen.get_datasets(1024,
                                                label_features=[f'{direction}_Node_Location_nb'],
                                                shuffle=True,
-                                               stride=config.ds_gen['stride'],
-                                               keep_label_stride=config.ds_gen['keep_label_stride'])
+                                               stride=30,
+                                               keep_label_stride=1)
 
         print(train_ds.element_spec)
 
@@ -106,101 +115,94 @@ def parameter_sweep(config=None):
                                            final_activation='linear',
                                            seed=0)
         model.summary()
+
+
+        best_results = {'foo' : 'bar'}
+        best_f2 = 0.0
+        best_f2_threshold = -1.0
+        best_f2_step = 0
+        global_wandb_step = 0
+        for strides, offset, keep_label, epochs in config.training['training_sets']:
+            print(f"Strides: {strides} Offset: {offset} Keeping Label: {keep_label} Epochs: {epochs}")
+            train_ds, val_ds = ds_gen.get_datasets(2048,
+                                                label_features=[f'{direction}_Node_Location_nb'],
+                                                shuffle=True,
+                                                only_ew_sk=False,
+                                                stride=1 if keep_label else strides,
+                                                keep_label_stride=1 if not keep_label else strides,
+                                                stride_offset=offset,
+                                                verbose=0)
         
-        # train
-        hist = model.fit(train_ds,
-                         val_ds=val_ds,
-                         epochs=100,
-                         early_stopping=20,
-                         target_metric='val_loss',
-                         plot_hist=False,
-                         callbacks=[WandbMetricsLogger(), ClearMemoryCallback()],
-                         verbose=2)
+            # train
+            hist = model.fit(train_ds,
+                            val_ds=val_ds,
+                            epochs=epochs,
+                            early_stopping=0,
+                            target_metric='val_mse',
+                            plot_hist=False,
+                            callbacks=[WandbMetricsLogger(initial_global_step=global_wandb_step), ClearMemoryCallback()],
+                            verbose=2)
+            
+            del train_ds
+            del val_ds
+        
+            global_wandb_step += epochs
+            print(f"----------------------Step: {global_wandb_step}-----------------------------")
+            
+            scores = localizer.perform_evaluation_pipeline(ds_gen,
+                                        model,
+                                        'val',
+                                        gt_path = challenge_data_dir / 'train_labels.csv',
+                                        output_dirs=[direction],
+                                        prediction_batches=5,
+                                        thresholds = np.linspace(30.0, 70.0, 11),
+                                        object_limit=None,
+                                        with_initial_node=False,
+                                        verbose=0)
+            print(f"--------------------------------------------------------------------")
+            gc.collect()
+            
+            f2s = [score['F2'] for score in scores]
+            best_local_f2_idx = np.argmax(f2s)
+            dict_to_log = {}
+            for key in scores[best_local_f2_idx].keys():
+                dict_to_log[f'val/{key}'] = scores[best_local_f2_idx][key]
+            if f2s[best_local_f2_idx] > best_f2:
+                best_f2 = f2s[best_local_f2_idx]
+                best_f2_threshold = scores[best_local_f2_idx]['Threshold']
+                best_f2_step = global_wandb_step
+                best_results = dict_to_log
+            wandb.log(dict_to_log, commit=False)
+            
 
         file_path = wandb.run.dir+"\\model_" + wandb.run.id + ".hdf5"
         print(f"Saving model to \"{file_path}\"")
         model.model.save(file_path)
         wandb.save(file_path)
 
-        train_ds = None
-        val_ds = None
-        del train_ds
-        del val_ds
-
         # ====================================Evaluation===================================================
 
-        # perform final evaluation
-        n_batches = 10
-        print(f"Running val-evaluation ({n_batches} batches):")
-
-        preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
-                                model=model,
-                                train=False,
-                                test=False,
-                                output_dirs=[direction],
-                                object_limit=None,
-                                prediction_batches=n_batches,
-                                verbose=2)
-        
-        # Try different thresholds, and save the best
-        best_results = {'F2' : 0.0, 'Threshold' : 0.0}
-        peak_nb_padding = np.max(config.ds_gen['nonbinary_padding'])
-        for threshold in np.linspace(peak_nb_padding*0.3, peak_nb_padding*0.80, 11):
-            print("-------------------------------")
-            print(f"Threshold {threshold:.2f}:")
-            subm_df = localizer.postprocess_predictions(preds_df=preds_df,
-                                                dirs=[direction],
-                                                threshold=threshold,
-                                                add_initial_node=True,
-                                                clean_consecutives=True,
-                                                deepcopy=True)
-
-            evaluation_results_v = localizer.evaluate_localizer(subm_df=subm_df,
-                                                            gt_path=challenge_data_dir / 'train_labels.csv',
-                                                            object_ids=list(map(int, ds_gen.val_keys)),
-                                                            dirs=[direction],
-                                                            with_initial_node=False,
-                                                            return_scores=True,
-                                                            verbose=2)
-            if evaluation_results_v['F2'] > best_results['F2']:
-                evaluation_results_v['Threshold'] = threshold
-                evaluation_results_v['Threshold_Fraction'] = threshold/peak_nb_padding
-                best_results = evaluation_results_v
         print("-------------------------------")
-        for key,value in best_results.items():
-            wandb.define_metric(key, summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
-            wandb.run.summary[f'{key}'] = value
+        print('Best Results: ', best_results)
+        wandb.run.summary['best_F2'] = best_f2
+        wandb.run.summary['best_F2_threshold'] = best_f2_threshold
+        wandb.run.summary['best_F2_step'] = best_f2_step
 
         train_object_limit = 500
-
-        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches) with threshold {peak_nb_padding*0.6}:")
-        preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
-                                model=model,
-                                train=True,
-                                test=False,
-                                output_dirs=[direction],
-                                object_limit=train_object_limit,
-                                prediction_batches=n_batches,
-                                verbose=2)
-        
-        subm_df = localizer.postprocess_predictions(preds_df=preds_df,
-                                            dirs=[direction],
-                                            threshold=peak_nb_padding*0.6,
-                                            add_initial_node=True,
-                                            clean_consecutives=True,
-                                            deepcopy=False)
-        
-
-        evaluation_results_t = localizer.evaluate_localizer(subm_df=subm_df,
-                                                        gt_path=challenge_data_dir / 'train_labels.csv',
-                                                        object_ids=list(map(int, ds_gen.train_keys))[:train_object_limit],
-                                                        dirs=[direction],
-                                                        with_initial_node=False,
-                                                        return_scores=True,
-                                                        verbose=2)
-        for key,value in evaluation_results_t.items():
-            wandb.define_metric(f'train_{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
-            wandb.run.summary[f'train_{key}'] = value
+        n_batches = 10
+        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches) with threshold {60.0}:")
+        evaluation_results_t = localizer.perform_evaluation_pipeline(ds_gen,
+                                        model,
+                                        'train',
+                                        gt_path = challenge_data_dir / 'train_labels.csv',
+                                        output_dirs=[direction],
+                                        prediction_batches=5,
+                                        thresholds = [60.0],
+                                        object_limit=train_object_limit,
+                                        with_initial_node=False,
+                                        verbose=0)
+        for key,value in evaluation_results_t[0].items():
+            wandb.run.summary[f'train/{key}'] = value
 
         split_dataframes = None
         ds_gen = None
@@ -212,45 +214,47 @@ def parameter_sweep(config=None):
 
 sweep_configuration = {
     "method": "grid",
-    "metric": {"goal": "maximize", "name": "F2"},
+    "metric": {"goal": "maximize", "name": "best_F2"},
     "parameters": {
         "feature_engineering" : {
             "parameters" : {
-                'RAAN' : {"values": ['non']},
-                'Argument_of_Periapsis' : {"values": ['sin']},
+                'RAAN' : {"values": ['diff']},
+                'Argument_of_Periapsis' : {"values": ['diff']},
                 'True_Anomaly' : {"values": ['diff']},
-                'Longitude' : {"values": ['sin']},
+                'Longitude' : {"values": ['diff']},
             }
         },
         "ds_gen" : {
             "parameters" : {
-            'overview_features_mean' : {"values" : [['Longitude (sin)', 'RAAN (deg)']]},
-            'overview_features_std' : {"values" : [['Latitude (deg)']]},
+            'overview_features_mean' : {"values" : [[]]},
+            'overview_features_std' : {"values" : [[]]},
             "pad_location_labels" : {"values": [0]},
             "nonbinary_padding" : {"values": [
                                               [110.0, 70.0, 49.0, 34.0, 24.0]
                                               ]},
-            "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [5]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "add_linear_timeindex" : {"values": [True]},
+            "add_linear_timeindex" : {"values": [False]},
             "class_multiplier_ID" : {"values": [1.0]},
             "class_multiplier_IK" : {"values": [1.0]},
-            "input_history_steps" : {"values": [256]},
-            "input_future_steps" : {"values": [256]},
+            "input_history_steps" : {"values": [48]},
+            "input_future_steps" : {"values": [48]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[48,6,2,1,1],[48,3,1,1,1],[48,3,1,1,1]],
-                                          [[48,6,2,1,1],[48,3,1,1,1]],
+                                          [[48,9,2,1,1],[48,5,1,1,1],[48,3,1,1,1]],
+                                          [[48,9,2,1,1],[48,5,1,1,1]],
+                                          [[48,6,1,1,1],[48,6,1,1,1],[48,6,1,1,1]],
+                                          [[48,5,1,1,1],[48,5,1,1,1],[48,5,1,1,1]],
+                                          [[48,3,1,1,1],[48,3,1,1,1],[48,3,1,1,1]],
+                                          [[48,15,3,1,1],[48,6,1,1,1],[48,3,1,1,1]],
                                           #[[48,8,2]],
-                                          [[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
-                                          [[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
+                                          #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
+                                          #[[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
@@ -263,6 +267,18 @@ sweep_configuration = {
             "mixed_dropout_lstm" : {"values": [0.0]},
             "lr_scheduler" : {"values": [[0.005, 7000, 0.9]]},
             "seed" : {"values": [0]},
+            }
+        },
+         "training" : {
+            "parameters" : {
+            "training_sets" : {"values": [
+                                    #[[5,0,True,2],[5,0,True,2]],
+                                    [[5,0,True,15],[5,1,True,15],[5,2,True,15],[7,0,True,15],[2,0,True,1]],
+                                    [[5,0,True,10],[5,1,True,10],[5,2,True,10],[5,3,True,10]],
+                                    [[5,0,True,60],[2,0,True,1]],
+                                    [[5,0,True,10],[5,1,True,10],[2,0,True,1]],
+                                    ]
+                                }
             }
         },
     },

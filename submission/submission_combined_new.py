@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -40,13 +40,20 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'Semimajor Axis (m)',
                                                               'Inclination (deg)',
                                                               'RAAN (deg)',
-                                                              #'Argument of Periapsis (deg)',
-                                                              #'True Anomaly (deg)',
-                                                              #'Longitude (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
                                                               'Latitude (deg)'],
-                                      diff_transform_features=['True Anomaly (deg)'],
+                                      diff_transform_features=['Eccentricity',
+                                                              'Semimajor Axis (m)',
+                                                              'Inclination (deg)',
+                                                              'RAAN (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
+                                                              'Latitude (deg)'],
                                       sin_transform_features=[],
-                                      sin_cos_transform_features=['Longitude (deg)', 'Argument of Periapsis (deg)'],
+                                      sin_cos_transform_features=[],
                                       overview_features_mean=[],
                                       overview_features_std=[],
                                       add_daytime_feature=False,
@@ -61,7 +68,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       per_object_scaling=False,
                                       custom_scaler=ew_localizer_scaler,
                                       input_dtype=np.float32,
-                                      sort_inputs=False,
+                                      sort_inputs=True,
                                       seed=69)
 
 print(f"Predicting EW locations using model \"{LOCALIZER_EW_DIR}\" and scaler \"{SCALER_EW_DIR}\"")
@@ -72,7 +79,7 @@ ew_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['EW'],
-                                prediction_batches=10,
+                                prediction_batches=5,
                                 verbose=2)
 
 ew_subm_df = localizer.postprocess_predictions(preds_df=ew_preds_df,
@@ -139,7 +146,7 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
                                 train=False,
                                 test=True,
                                 output_dirs=['NS'],
-                                prediction_batches=10,
+                                prediction_batches=5,
                                 verbose=2)
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
@@ -211,7 +218,7 @@ pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 only_nodes=False,
                                 model_outputs=['EW_Type', 'NS_Type'],
                                 object_limit=None,
-                                prediction_batches=10,
+                                prediction_batches=5,
                                 verbose=2)
 
 #majority_df = classifier.apply_majority_method(preds_df=pred_df, location_df=df_locs)
@@ -240,7 +247,7 @@ else:
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
-    print(f'F2: {f2:.2f}')
+    print(f'F2: {f2:.3f}')
     print(f'RMSE: {float(rmse):.4}')
     print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
     print("Done.")

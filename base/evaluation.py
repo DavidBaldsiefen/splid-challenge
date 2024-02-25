@@ -7,12 +7,12 @@ import argparse
 from fastcore.all import *
 
 class NodeDetectionEvaluator:
-    def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False):
+    def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False, verbose=1):
         self.ground_truth = ground_truth.copy()
         self.participant = participant.copy()
         self.tolerance = tolerance
         self.ignore_classes=ignore_classes
-        if ignore_classes: print("Evaluator ignoring classifications")
+        if ignore_classes and verbose>0: print("Evaluator ignoring classifications")
         
     def evaluate(self, object_id):
         gt_object = self.ground_truth[(self.ground_truth['ObjectID'] == object_id) & \
@@ -83,7 +83,7 @@ class NodeDetectionEvaluator:
             )
         if ((total_tp + total_fp) < 1):
             print("Warning: No true AND false positives! Did you compare train results agaist val-ground_truth?")
-            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None
 
         precision = total_tp / (total_tp + total_fp)
         recall = total_tp / (total_tp + total_fn)
@@ -225,7 +225,7 @@ def run_evaluator(ground_truth_path=None, participant_path=None, plot_object=Non
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
     print(f'Precision: {precision:.2f}')
     print(f'Recall: {recall:.2f}')
-    print(f'F2: {f2:.2f}')
+    print(f'F2: {f2:.3f}')
     print(f'RMSE: {rmse:.4f}')
     print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
@@ -292,7 +292,7 @@ def evaluate_localizer(ds_gen, split_dataframes, gt_path, model, train=True, wit
     if verbose>0:
         print(f'Precision: {precision:.2f}')
         print(f'Recall: {recall:.2f}')
-        print(f'F2: {f2:.2f}')
+        print(f'F2: {f2:.3f}')
         print(f'RMSE: {float(rmse):.4}')
         print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 

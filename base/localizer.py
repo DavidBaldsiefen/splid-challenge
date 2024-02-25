@@ -197,6 +197,10 @@ def remove_ns_during_ew_nk(sub_df):
     """Remove predictions from the df during which EW nodes show a NK mode"""
 
     sub_df['EW_Type'] = sub_df['Type']
+    sub_df['EW_Loc'] = 0
+    sub_df['NS_Loc'] = 0
+    sub_df.loc[sub_df['Direction'] == 'EW', 'EW_Loc'] = 1
+    sub_df.loc[sub_df['Direction'] == 'NS', 'NS_Loc'] = 1
     sub_df.loc[sub_df['Direction'] == 'NS', 'EW_Type'] = np.nan
     sub_df.ffill(inplace=True)
     sub_df = sub_df.loc[(sub_df['Direction'] == 'EW') | 
@@ -224,13 +228,13 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
         subm_df = subm_df.loc[(subm_df['TimeIndex'] != 0)]
 
     # Initiate evaluator
-    evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True)
+    evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True, verbose=verbose)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
 
     if verbose>0:
         print(f'Precision: {precision:.2f}')
         print(f'Recall: {recall:.2f}')
-        print(f'F2: {f2:.2f}')
+        print(f'F2: {f2:.3f}')
         print(f'RMSE: {float(rmse):.4}')
         print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
@@ -238,3 +242,48 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
         return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
     else:
         return evaluator, subm_df
+    
+
+def perform_evaluation_pipeline(ds_gen,
+                                model,
+                                ds_type,
+                                gt_path,
+                                output_dirs,
+                                prediction_batches,
+                                thresholds,
+                                object_limit=None,
+                                with_initial_node=False,
+                                verbose=2):
+    
+    preds_df = create_prediction_df(ds_gen=ds_gen,
+                                model=model,
+                                train=True if ds_type=='train' else False,
+                                test=True if ds_type=='test' else False,
+                                stateful=False,
+                                output_dirs=output_dirs,
+                                object_limit=object_limit,
+                                only_ew_sk=False,
+                                ds_batch_size=1024,
+                                prediction_batches=prediction_batches,
+                                verbose=verbose)
+    
+    all_scores = []
+    for threshold in thresholds:
+        subm_df = postprocess_predictions(preds_df=preds_df,
+                                        dirs=output_dirs,
+                                        threshold=threshold,
+                                        add_initial_node=True,
+                                        clean_consecutives=True,
+                                        deepcopy=False)
+
+        scores = evaluate_localizer(subm_df=subm_df,
+                                                gt_path=gt_path,
+                                                object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
+                                                dirs=output_dirs,
+                                                with_initial_node=with_initial_node,
+                                                return_scores=True,
+                                                verbose=0)
+        scores['Threshold'] = threshold
+        all_scores.append(scores)
+        print(f"Threshold: {scores['Threshold']:.1f}\t Precision: {scores['Precision']:.2f} Recall: {scores['Recall']:.2f} F2: {scores['F2']:.3f} RMSE: {scores['RMSE']:.2f} | TP: {scores['TP']} FP: {scores['FP']} FN: {scores['FN']}")
+    return all_scores
