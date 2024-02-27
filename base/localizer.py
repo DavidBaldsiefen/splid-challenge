@@ -25,6 +25,7 @@ def create_prediction_df(ds_gen,
                          object_limit=None,
                          prediction_batches=1,
                          ds_batch_size=256,
+                         prediction_stride=1,
                          verbose=1):
     if test and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
@@ -52,7 +53,7 @@ def create_prediction_df(ds_gen,
                                             only_ew_sk=only_ew_sk,
                                             train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
                                             val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
-                                            stride=1)
+                                            stride=prediction_stride)
             ds = (datasets[0] if train else datasets[1]) if not test else datasets
 
             identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
@@ -236,11 +237,11 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
 
     tp_ID = 0
-    fp_ID = 0
+    fn_ID = 0
     tp_IK = 0
-    fp_IK = 0
+    fn_IK = 0
     tp_AD = 0
-    fp_AD = 0
+    fn_AD = 0
 
     if total_df is not None:
         # FP cannot be accounted for independently, as we cannot know _what_ was falsely detected
@@ -301,6 +302,7 @@ def perform_evaluation_pipeline(ds_gen,
                                 object_limit=None,
                                 with_initial_node=False,
                                 nodes_to_consider=['ID', 'IK', 'AD'],
+                                prediction_stride=1,
                                 verbose=2):
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
@@ -313,6 +315,7 @@ def perform_evaluation_pipeline(ds_gen,
                                 only_ew_sk=False,
                                 ds_batch_size=1024,
                                 prediction_batches=prediction_batches,
+                                prediction_stride=prediction_stride,
                                 verbose=verbose)
     
     all_scores = []

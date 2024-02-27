@@ -252,13 +252,14 @@ sweep_configuration = {
             "class_multiplier_ID" : {"values": [1.0]},
             "class_multiplier_IK" : {"values": [0.0]},
             "class_multiplier_AD" : {"values": [0.0]},
-            "input_history_steps" : {"values": [196]},
-            "input_future_steps" : {"values": [196]},
+            "input_history_steps" : {"values": [256]},
+            "input_future_steps" : {"values": [256]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
+                                          #[[64,15,1,1,1],[64,15,1,1,1],[48,15,2,1,1]],
                                           [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
                                           #[[48,8,2]],
                                           #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
@@ -281,10 +282,10 @@ sweep_configuration = {
             "parameters" : {
             "training_sets" : {"values": [
                                     #[[5,0,True,2],[5,0,True,2]],
-                                    [[8,0,True,20],[8,1,True,20],[8,2,True,20]],
-                                    [[7,0,True,20],[7,1,True,20],[7,2,True,20]],
-                                    [[6,0,True,20],[6,1,True,20],[6,2,True,20]],
-                                    [[5,0,True,20],[5,1,True,20],[5,2,True,20]],
+                                    #[[8,0,True,20],[8,1,True,20],[8,2,True,20]],
+                                    #[[7,0,True,20],[7,1,True,20],[7,2,True,20]],
+                                    #[[6,0,True,20],[6,1,True,20],[6,2,True,20]],
+                                    [[5,0,True,25],[5,1,True,25],[5,2,True,25]],
                                     ]
                                 },
             "nodes_to_consider" : {"values": [['ID']]

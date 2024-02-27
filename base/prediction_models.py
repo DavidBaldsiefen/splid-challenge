@@ -332,7 +332,7 @@ class Dense_NN(Prediction_Model):
 
         # select losses and metrics
         loss_functions = {
-            'binary' : [tf.losses.BinaryCrossentropy()],
+            'binary' : [tf.losses.BinaryCrossentropy() for _ in range(len(ds.element_spec[1]))],
             'classification' : [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))],
             'regression' : [[AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))] if asymmetric_loss != 0.0 else
                             [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]]
