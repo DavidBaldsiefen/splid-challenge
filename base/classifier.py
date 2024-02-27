@@ -110,6 +110,64 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
 
     return df
 
+def fill_unknwon_nodes_based_on_type(df, dirs=['EW', 'NS']):
+    """Take an almost finished submission df, and fill 'UNKNOWN' nodes according to the types
+    Assumes df to have columns [OjectID, TimeIndex, Direction, Node, Type]
+    REQUIRES df to include SS nodes
+    """
+    dfs = []
+    for dir in dirs:
+        # merge locs into preds
+        sub_df = df.loc[df['Direction'] == dir].copy()
+        sub_df = sub_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True) # important
+
+        # nodes always depend on the previous and current type
+        object_ids = sub_df['ObjectID'].unique()
+        for object_id in object_ids:
+            obj_df=sub_df.loc[sub_df['ObjectID'] == object_id]
+            for index, row in obj_df.iterrows():
+                if sub_df.loc[index, 'Node'] == 'UNKNOWN':
+                    if row['TimeIndex']==0:
+                        sub_df.loc[index, 'Node'] = 'SS'
+                    else:
+                        prev_type = sub_df.loc[index-1, 'Type']
+                        next_type = sub_df.loc[index, 'Type']
+                        node = ''
+                        if prev_type == 'NK' and next_type =='NK': node = 'AD'
+                        elif prev_type in ['CK', 'EK', 'HK'] and next_type == 'NK': node = 'ID'
+                        elif prev_type == 'NK' and next_type in ['CK', 'EK', 'HK']: node = 'IK'
+                        else: node = 'IK' # something is wrong, so choose the most common node
+                        sub_df.loc[index, 'Node'] = node
+
+        dfs.append(sub_df)
+
+    # concatenate both directions
+    df = pd.concat(dfs)
+    df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    return df
+
+def fill_unknown_types_based_on_preds(preds_df, location_df, dirs=['EW', 'NS']):
+    """Take the locations from location_df and apply immediate prediction, but only if current type is 'UNKNOWN'
+    Assumes preds_df to have columns [OjectID, TimeIndex, EW_Type, NS_Type]
+    Assumes location_df to have columns [OjectID, TimeIndex, Direction, Node, Type]
+    """
+
+    dfs = []
+    for dir in dirs:
+        # merge locs into preds
+        sub_df = location_df.copy()
+        sub_df = sub_df.loc[sub_df['Direction'] == dir]
+        sub_df = preds_df[['ObjectID', 'TimeIndex', f'{dir}_Type']].merge(sub_df, how='inner', on=['ObjectID', 'TimeIndex'])
+        sub_df = sub_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True) # important
+        sub_df.loc[sub_df['Type'] == 'UNKNOWN', 'Type'] = sub_df.loc[sub_df['Type'] == 'UNKNOWN', f'{dir}_Type']
+
+        dfs.append(sub_df)
+
+    # concatenate both directions
+    df = pd.concat(dfs)
+    df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    return df
+
 def apply_one_shot_method(preds_df, location_df, dirs=['EW', 'NS']):
     """Take the locations from location_df and apply immediate prediction
     Assumes preds_df to have columns [OjectID, TimeIndex, EW_Type, NS_Type]

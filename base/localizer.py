@@ -190,7 +190,10 @@ def postprocess_predictions(preds_df,
         sub_dfs.append(sub_df)
     df = pd.concat(sub_dfs)
 
-    df = df[['ObjectID', 'TimeIndex', 'Direction']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+    df['Node'] = 'UNKNOWN'
+    df['Type'] = 'UNKNOWN'
+
+    df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
     return df
 
