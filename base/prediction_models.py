@@ -340,7 +340,7 @@ class Dense_NN(Prediction_Model):
         metrics = {
             'binary' : [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],
             'classification' : ['accuracy'],
-            'regression' : ['mse', 'mae']
+            'regression' : ['mse'] # mae
         }
 
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])

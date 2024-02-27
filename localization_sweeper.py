@@ -6,11 +6,12 @@ from pathlib import Path
 #import tracemalloc
 import gc
 import numpy as np
+import pickle
 
 from base import datahandler, prediction_models, utils, localizer
 
 
-direction='EW'
+directions=['EW', 'NS']
 
 class ClearMemoryCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -34,7 +35,7 @@ def parameter_sweep(config=None):
         labels_dir = challenge_data_dir / 'train_labels.csv'
         split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
-        print(f"Direction: {direction}")
+        print(f"Directions: {directions}")
 
         # Create Dataset
         utils.set_random_seed(42)
@@ -80,7 +81,7 @@ def parameter_sweep(config=None):
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
                                                 node_class_multipliers={'ID':config.ds_gen['class_multiplier_ID'],
                                                                         'IK':config.ds_gen['class_multiplier_IK'],
-                                                                        'AD':1.0,
+                                                                        'AD':config.ds_gen['class_multiplier_AD'],
                                                                         'SS':1.0},
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
@@ -90,8 +91,8 @@ def parameter_sweep(config=None):
                                                 deepcopy=False)
         # print('Trn-keys:', ds_gen.train_keys)
         # print('Val-keys:', ds_gen.val_keys)
-        train_ds, val_ds = ds_gen.get_datasets(1024,
-                                               label_features=[f'{direction}_Node_Location_nb'],
+        train_ds, val_ds = ds_gen.get_datasets(2048,
+                                               label_features=[f'{dir}_Node_Location_nb' for dir in directions],
                                                shuffle=True,
                                                stride=30,
                                                keep_label_stride=1)
@@ -116,6 +117,10 @@ def parameter_sweep(config=None):
                                            seed=0)
         model.summary()
 
+        del train_ds
+        del val_ds
+        gc.collect()
+
 
         best_results = {'foo' : 'bar'}
         best_f2 = 0.0
@@ -125,7 +130,7 @@ def parameter_sweep(config=None):
         for strides, offset, keep_label, epochs in config.training['training_sets']:
             print(f"Strides: {strides} Offset: {offset} Keeping Label: {keep_label} Epochs: {epochs}")
             train_ds, val_ds = ds_gen.get_datasets(2048,
-                                                label_features=[f'{direction}_Node_Location_nb'],
+                                                label_features=[f'{dir}_Node_Location_nb' for dir in directions],
                                                 shuffle=True,
                                                 only_ew_sk=False,
                                                 stride=1 if keep_label else strides,
@@ -153,11 +158,12 @@ def parameter_sweep(config=None):
                                         model,
                                         'val',
                                         gt_path = challenge_data_dir / 'train_labels.csv',
-                                        output_dirs=[direction],
+                                        output_dirs=directions,
                                         prediction_batches=5,
                                         thresholds = np.linspace(30.0, 70.0, 11),
                                         object_limit=None,
                                         with_initial_node=False,
+                                        nodes_to_consider=config.training['nodes_to_consider'],
                                         verbose=0)
             print(f"--------------------------------------------------------------------")
             gc.collect()
@@ -173,12 +179,16 @@ def parameter_sweep(config=None):
                 best_f2_step = global_wandb_step
                 best_results = dict_to_log
             wandb.log(dict_to_log, commit=False)
-            
 
-        file_path = wandb.run.dir+"\\model_" + wandb.run.id + ".hdf5"
+        file_path = wandb.run.dir+"/model_" + wandb.run.id + ".hdf5"
         print(f"Saving model to \"{file_path}\"")
         model.model.save(file_path)
         wandb.save(file_path)
+        if config.ds_gen['per_object_scaling'] == False:
+            scaler_path = wandb.run.dir+"/scaler_" + wandb.run.id + ".hdf5"
+            print(f"Saving scaler to \"{scaler_path}\"")
+            pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
+            wandb.save(scaler_path)
 
         # ====================================Evaluation===================================================
 
@@ -195,11 +205,12 @@ def parameter_sweep(config=None):
                                         model,
                                         'train',
                                         gt_path = challenge_data_dir / 'train_labels.csv',
-                                        output_dirs=[direction],
+                                        output_dirs=directions,
                                         prediction_batches=5,
                                         thresholds = [60.0],
                                         object_limit=train_object_limit,
                                         with_initial_node=False,
+                                        nodes_to_consider=config.training['nodes_to_consider'],
                                         verbose=0)
         for key,value in evaluation_results_t[0].items():
             wandb.run.summary[f'train/{key}'] = value
@@ -222,6 +233,7 @@ sweep_configuration = {
                 'Argument_of_Periapsis' : {"values": ['diff']},
                 'True_Anomaly' : {"values": ['diff']},
                 'Longitude' : {"values": ['diff']},
+                'Latitude' : {"values": ['diff']},
             }
         },
         "ds_gen" : {
@@ -232,26 +244,22 @@ sweep_configuration = {
             "nonbinary_padding" : {"values": [
                                               [110.0, 70.0, 49.0, 34.0, 24.0]
                                               ]},
-            "input_stride" : {"values": [2]},
+            "input_stride" : {"values": [4]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [False]},
             "class_multiplier_ID" : {"values": [1.0]},
-            "class_multiplier_IK" : {"values": [1.0]},
-            "input_history_steps" : {"values": [48]},
-            "input_future_steps" : {"values": [48]},
+            "class_multiplier_IK" : {"values": [0.0]},
+            "class_multiplier_AD" : {"values": [0.0]},
+            "input_history_steps" : {"values": [196]},
+            "input_future_steps" : {"values": [196]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[48,9,2,1,1],[48,5,1,1,1],[48,3,1,1,1]],
-                                          [[48,9,2,1,1],[48,5,1,1,1]],
-                                          [[48,6,1,1,1],[48,6,1,1,1],[48,6,1,1,1]],
-                                          [[48,5,1,1,1],[48,5,1,1,1],[48,5,1,1,1]],
-                                          [[48,3,1,1,1],[48,3,1,1,1],[48,3,1,1,1]],
-                                          [[48,15,3,1,1],[48,6,1,1,1],[48,3,1,1,1]],
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
                                           #[[48,8,2]],
                                           #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
                                           #[[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
@@ -273,11 +281,13 @@ sweep_configuration = {
             "parameters" : {
             "training_sets" : {"values": [
                                     #[[5,0,True,2],[5,0,True,2]],
-                                    [[5,0,True,15],[5,1,True,15],[5,2,True,15],[7,0,True,15],[2,0,True,1]],
-                                    [[5,0,True,10],[5,1,True,10],[5,2,True,10],[5,3,True,10]],
-                                    [[5,0,True,60],[2,0,True,1]],
-                                    [[5,0,True,10],[5,1,True,10],[2,0,True,1]],
+                                    [[8,0,True,20],[8,1,True,20],[8,2,True,20]],
+                                    [[7,0,True,20],[7,1,True,20],[7,2,True,20]],
+                                    [[6,0,True,20],[6,1,True,20],[6,2,True,20]],
+                                    [[5,0,True,20],[5,1,True,20],[5,2,True,20]],
                                     ]
+                                },
+            "nodes_to_consider" : {"values": [['ID']]
                                 }
             }
         },

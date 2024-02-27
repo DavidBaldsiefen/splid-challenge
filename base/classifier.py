@@ -143,10 +143,10 @@ def apply_one_shot_method(preds_df, location_df, dirs=['EW', 'NS']):
                     prev_type = df.loc[index-1, 'Type']
                     next_type = df.loc[index, 'Type']
                     node = ''
-                    # TODO: the ordering here could have an effect on the number of TP/FP
                     if prev_type == 'NK' and next_type =='NK': node = 'AD'
-                    elif prev_type == 'NK' and any(next_type == nd for nd in ['CK', 'EK', 'HK']): node = 'IK'
-                    else: node = 'ID'
+                    elif prev_type in ['CK', 'EK', 'HK'] and next_type == 'NK': node = 'ID'
+                    elif prev_type == 'NK' and next_type in ['CK', 'EK', 'HK']: node = 'IK'
+                    else: node = 'IK' # something is wrong, so choose the most common node
                     df.loc[index, 'Node'] = node
 
         dfs.append(df)

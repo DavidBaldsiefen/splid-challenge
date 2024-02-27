@@ -165,7 +165,8 @@ def postprocess_predictions(preds_df,
         df['Any_Loc'] = df['Any_Loc'] | df[f'{dir}_Loc']
 
     # remove consecutive location predictions, and replace them only with their center
-     # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
+    # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
+    # TODO: look at this again - why does it not happen on a per-direction basis???
     if clean_consecutives:
         df = df.loc[(df['Any_Loc'] == True)]
         df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
@@ -184,7 +185,7 @@ def postprocess_predictions(preds_df,
     # bring it all into the submission format
     sub_dfs = []
     for dir in dirs:
-        sub_df = df.loc[df[f'{dir}_Loc'] == True]
+        sub_df = df.loc[df[f'{dir}_Loc'] == True].copy()
         sub_df['Direction'] = dir
         sub_dfs.append(sub_df)
     df = pd.concat(sub_dfs)
@@ -209,7 +210,7 @@ def remove_ns_during_ew_nk(sub_df):
 
     return sub_df
 
-def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, verbose=1):
+def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, nodes_to_consider=['ID', 'IK', 'AD'], verbose=1):
     from base import evaluation
     # Load gt
     ground_truth_df = pd.read_csv(gt_path)
@@ -227,9 +228,44 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
         ground_truth_df = ground_truth_df.loc[(ground_truth_df['TimeIndex'] != 0)]
         subm_df = subm_df.loc[(subm_df['TimeIndex'] != 0)]
 
-    # Initiate evaluator
+    # Initiate evaluator & get scoring df
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=subm_df, ignore_classes=True, verbose=verbose)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
+
+    tp_ID = 0
+    fp_ID = 0
+    tp_IK = 0
+    fp_IK = 0
+    tp_AD = 0
+    fp_AD = 0
+
+    if total_df is not None:
+        # FP cannot be accounted for independently, as we cannot know _what_ was falsely detected
+        tp_ID = len(total_df.loc[(total_df['Node'] == 'ID') & (total_df['classification'] == 'TP')])
+        fn_ID = len(total_df.loc[(total_df['Node'] == 'ID') & (total_df['classification'] == 'FN')])
+        tp_IK = len(total_df.loc[(total_df['Node'] == 'IK') & (total_df['classification'] == 'TP')])
+        fn_IK = len(total_df.loc[(total_df['Node'] == 'IK') & (total_df['classification'] == 'FN')])
+        tp_AD = len(total_df.loc[(total_df['Node'] == 'AD') & (total_df['classification'] == 'TP')])
+        fn_AD = len(total_df.loc[(total_df['Node'] == 'AD') & (total_df['classification'] == 'FN')])
+
+    # Re-calculate metrics
+    total_tp = 0
+    total_tp += tp_ID if 'ID' in nodes_to_consider else 0
+    total_tp += tp_IK if 'IK' in nodes_to_consider else 0
+    total_tp += tp_AD if 'AD' in nodes_to_consider else 0
+    total_fn = 0
+    total_fn += fn_ID if 'ID' in nodes_to_consider else 0
+    total_fn += fn_IK if 'IK' in nodes_to_consider else 0
+    total_fn += fn_AD if 'AD' in nodes_to_consider else 0
+    if total_tp + total_fp > 0:
+        precision = total_tp / (total_tp + total_fp)
+        recall = total_tp / (total_tp + total_fn)
+        f2 = (5 * total_tp) / (5 * total_tp + 4 * total_fn + total_fp)
+    else:
+        precision = 0.0
+        recall = 0.0
+        f2 = 0.0
+        rmse = 0.0
 
     if verbose>0:
         print(f'Precision: {precision:.2f}')
@@ -238,8 +274,16 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
         print(f'RMSE: {float(rmse):.4}')
         print(f'TP: {total_tp} FP: {total_fp} FN: {total_fn}')
 
+        if total_df is not None:
+            print(f"TP/FN based on Node:")
+            print(f"ID: {tp_ID}|{fn_ID}")
+            print(f"IK: {tp_IK}|{fn_IK}")
+            print(f"AD: {tp_AD}|{fn_AD}")
+
+
     if return_scores:
-        return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn}
+        return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn,
+                'TP_ID':tp_ID,'FN_ID':fn_ID,'TP_IK':tp_IK,'FN_IK':fn_IK,'TP_AD':tp_AD,'FN_AD':fn_AD}
     else:
         return evaluator, subm_df
     
@@ -253,6 +297,7 @@ def perform_evaluation_pipeline(ds_gen,
                                 thresholds,
                                 object_limit=None,
                                 with_initial_node=False,
+                                nodes_to_consider=['ID', 'IK', 'AD'],
                                 verbose=2):
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
@@ -277,13 +322,14 @@ def perform_evaluation_pipeline(ds_gen,
                                         deepcopy=False)
 
         scores = evaluate_localizer(subm_df=subm_df,
-                                                gt_path=gt_path,
-                                                object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
-                                                dirs=output_dirs,
-                                                with_initial_node=with_initial_node,
-                                                return_scores=True,
-                                                verbose=0)
+                                    gt_path=gt_path,
+                                    object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
+                                    dirs=output_dirs,
+                                    with_initial_node=with_initial_node,
+                                    nodes_to_consider=nodes_to_consider, 
+                                    return_scores=True,
+                                    verbose=0)
         scores['Threshold'] = threshold
         all_scores.append(scores)
-        print(f"Threshold: {scores['Threshold']:.1f}\t Precision: {scores['Precision']:.2f} Recall: {scores['Recall']:.2f} F2: {scores['F2']:.3f} RMSE: {scores['RMSE']:.2f} | TP: {scores['TP']} FP: {scores['FP']} FN: {scores['FN']}")
+        print(f"Threshold: {scores['Threshold']:.1f}\t Precision: {scores['Precision']:.2f} Recall: {scores['Recall']:.2f} F2: {scores['F2']:.3f} RMSE: {scores['RMSE']:.2f} | TP: {scores['TP']} FP: {scores['FP']} FN: {scores['FN']} (ID: {scores['TP_ID']}|{scores['FN_ID']} IK: {scores['TP_IK']}|{scores['FN_IK']} AD: {scores['TP_AD']}|{scores['FN_AD']})")
     return all_scores
