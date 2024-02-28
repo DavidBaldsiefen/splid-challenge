@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
@@ -64,8 +64,8 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       train_val_split=1.0,
                                       input_stride=2,
                                       padding='none',
-                                      input_history_steps=48,
-                                      input_future_steps=48,
+                                      input_history_steps=128,
+                                      input_future_steps=32,
                                       per_object_scaling=False,
                                       custom_scaler=adik_localizer_scaler,
                                       unify_value_ranges=True,
@@ -86,7 +86,7 @@ adik_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 adik_subm_df = localizer.postprocess_predictions(preds_df=adik_preds_df,
                                             dirs=['EW', 'NS'],
-                                            threshold=60.0,
+                                            threshold=65.0, # tendency would be to set this value even higher
                                             add_initial_node=False, # Do not add initial nodes just yet
                                             clean_consecutives=True)
 gc.collect()
@@ -100,16 +100,16 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'RAAN (deg)',
                                                               'Argument of Periapsis (deg)',
                                                               #'True Anomaly (deg)',
-                                                              #'Longitude (deg)',
+                                                              'Longitude (deg)',
                                                               'Latitude (deg)'],
                                       diff_transform_features=[#'Eccentricity',
                                                               #'Semimajor Axis (m)',
                                                               #'Inclination (deg)',
-                                                              'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
+                                                              #'RAAN (deg)',
+                                                              #'Argument of Periapsis (deg)',
                                                               'True Anomaly (deg)',
-                                                              'Longitude (deg)',
-                                                              'Latitude (deg)'
+                                                              #'Longitude (deg)',
+                                                              #'Latitude (deg)'
                                                               ],
                                       sin_transform_features=[#'Eccentricity',
                                                               #'Semimajor Axis (m)',

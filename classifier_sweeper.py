@@ -71,7 +71,7 @@ def parameter_sweep(config=None):
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
-                                                seed=181,
+                                                seed=11,
                                                 deepcopy=False)
         
         print('Trn-keys:', ds_gen.train_keys)

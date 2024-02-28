@@ -129,6 +129,7 @@ class DatasetGenerator():
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
+                 nodes_to_include_as_locations=['ID', 'AD', 'IK'],
                  input_stride=1, # distance between input steps
                  padding='none', # wether to use none/zero/same padding at the beginning and end of each df
                  shuffle_train_val=True,
@@ -162,6 +163,7 @@ class DatasetGenerator():
         
         # now, create the train and val split
         keys_list = list(split_df.keys())
+        keys_list.sort() # first, sort the list - this ensures that it doesnt matter where the keys are coming from (they will be sorted strangely as theyre strings)
         if shuffle_train_val:
             random.Random(self._seed).shuffle(keys_list) # shuffle, but with a seed for reproducability
         split_idx = int(len(keys_list) * train_val_split)
@@ -170,10 +172,10 @@ class DatasetGenerator():
 
         # exclude certain objects, e.g. if it is known that they are erronous
         if exclude_objects:
-            self._train_keys = [key for key in self._train_keys if not (key in exclude_objects)]
-            self._val_keys = [key for key in self._val_keys if not (key in exclude_objects)]
+            self._train_keys = [key for key in self._train_keys if not (int(key) in exclude_objects)]
+            self._val_keys = [key for key in self._val_keys if not (int(key) in exclude_objects)]
             for key in exclude_objects:
-                split_df.pop(key, None)
+                split_df.pop(str(key), None)
 
         if verbose>0:
             print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
@@ -288,13 +290,13 @@ class DatasetGenerator():
             if verbose > 0:
                 print(f"Padding node locations ({pad_location_labels})")
             for key, sub_df in split_df.items():
-                timeindices = sub_df.loc[(sub_df['EW_Node_Location'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
-                for timeindex in timeindices:
-                    # TODO: Using timeindex as index? this correct???
-                    sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'EW_Node_Location'] = True
-                timeindices = sub_df.loc[(sub_df['NS_Node_Location'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
-                for timeindex in timeindices:
-                    sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, 'NS_Node_Location'] = True
+                for dir in ['EW', 'NS']:
+                    # Remove nodes which should *not* be included
+                    sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location'] = False
+                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location'] == 1) & (sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)), 'TimeIndex'].to_numpy() # only considers SS if it is in nodes_to_include_as_locations
+                    for timeindex in timeindices:
+                        # TODO: Using timeindex as index? this correct???
+                        sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, f'{dir}_Node_Location'] = True
 
         if nonbinary_padding:
             if verbose>1:
@@ -306,15 +308,15 @@ class DatasetGenerator():
             for key, sub_df in split_df.items():
                 for dir in ['EW', 'NS']:
                     sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
-                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1), 'TimeIndex'].to_numpy()[1:] # only consider locations with timeindex > 1
+                    # Remove nodes which should *not* be included
+                    sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location_nb'] = 0.0
+                    timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1) & (sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)), 'TimeIndex'].to_numpy() # only considers SS if it is in nodes_to_include_as_locations
                     for timeindex in timeindices:
                         node = sub_df.loc[timeindex, f'{dir}_Node']
                         scaling_factor = 1.0
                         if node_class_multipliers:
                             scaling_factor = node_class_multipliers[node]
-                        #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
                         sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended, dtype=np.float32)*scaling_factor
-                        #print(sub_df.loc[timeindex-pad_len:timeindex + pad_len, 'EW_Node_Location_nb'])
 
         # encode labels
         if verbose>1:
@@ -501,19 +503,6 @@ class DatasetGenerator():
             inputs = inputs[ew_sk_fields]
             labels = labels[ew_sk_fields]
             element_identifiers = element_identifiers[ew_sk_fields]
-            
-        # # if wanted, only preserve items with nodes
-        # if only_nodes:
-        #     # identify which direction we want
-        #     ew_nodes = np.argwhere(node_location_markers[:,0] == 1)[:,0]
-        #     ns_nodes = np.argwhere(node_location_markers[:,1] == 1)[:,0]
-        #     with_ew = any('EW' in ft for ft in label_features)
-        #     with_ns = any('NS' in ft for ft in label_features)
-        #     nodes = [] + ([ew_nodes] if with_ew else []) + ([ns_nodes] if with_ns else [])
-        #     nodes = np.sort(np.unique(np.concatenate(nodes)))
-        #     inputs = inputs[nodes]
-        #     labels = labels[nodes]
-        #     element_identifiers = element_identifiers[nodes]
             
         # finally, create the dataset
         with tf.device("CPU"):

@@ -201,6 +201,7 @@ class Dense_NN(Prediction_Model):
                  lr_scheduler=[],
                  output_type='classification', # 'binary', 'regression'
                  final_activation=None,
+                 final_activation_bias_initializer=None,
                  asymmetric_loss=0.0,
                  seed=None):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
@@ -319,7 +320,7 @@ class Dense_NN(Prediction_Model):
                                 activation=output_activation,
                                 kernel_regularizer=regularizers.l2(l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
-                                bias_initializer=self.createInitializer('zeros'),
+                                bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
                                 name=out_feature)(x)
             outputs.append(output)
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
