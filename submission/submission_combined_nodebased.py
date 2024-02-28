@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -63,7 +63,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
-                                      padding='none',
+                                      padding='zero',
                                       input_history_steps=128,
                                       input_future_steps=32,
                                       per_object_scaling=False,

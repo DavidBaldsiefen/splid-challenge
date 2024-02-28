@@ -62,7 +62,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       with_labels=False,
                                       train_val_split=1.0,
                                       input_stride=2,
-                                      padding='none',
+                                      padding='zero',
                                       input_history_steps=48,
                                       input_future_steps=24,
                                       per_object_scaling=False,
@@ -151,7 +151,7 @@ ns_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 ns_subm_df = localizer.postprocess_predictions(preds_df=ns_preds_df,
                                             dirs=['NS'],
-                                            threshold=45.0,
+                                            threshold=42.0,
                                             add_initial_node=True,
                                             clean_consecutives=True)
 gc.collect()
