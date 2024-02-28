@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import copy
 import gc
 
+pd.set_option('future.no_silent_downcasting', True)
 
 def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
     # Load the labels
@@ -79,14 +80,14 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
                                         how='left')
             
             # Fill 'unknown' values in 'EW' and 'NS' columns that come before the first valid observation
-            object_df['EW'].ffill(inplace=True)
-            object_df['EW_Node'].ffill(inplace=True)
-            object_df['EW_Type'].ffill(inplace=True)
-            object_df['EW_Node_Location'].fillna(False, inplace=True)
-            object_df['NS'].ffill(inplace=True)
-            object_df['NS_Node'].ffill(inplace=True)
-            object_df['NS_Type'].ffill(inplace=True)
-            object_df['NS_Node_Location'].fillna(False, inplace=True)
+            object_df['EW'] = object_df['EW'].ffill(inplace=False)
+            object_df['EW_Node'] = object_df['EW_Node'].ffill(inplace=False)
+            object_df['EW_Type'] = object_df['EW_Type'].ffill(inplace=False)
+            object_df['EW_Node_Location'] = object_df['EW_Node_Location'].fillna(False, inplace=False)
+            object_df['NS'] = object_df['NS'].ffill(inplace=False)
+            object_df['NS_Node'] = object_df['NS_Node'].ffill(inplace=False)
+            object_df['NS_Type'] = object_df['NS_Type'].ffill(inplace=False)
+            object_df['NS_Node_Location'] = object_df['NS_Node_Location'].fillna(False, inplace=False)
         else:
             object_df['EW'] = 'UNKNOWN'
             object_df['EW_Node'] = 'UNKNOWN'
