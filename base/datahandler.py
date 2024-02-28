@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 import copy
 import gc
 
-pd.set_option('future.no_silent_downcasting', True)
+if float(tf.__version__[:4]) < 2.15:
+    pd.set_option('future.no_silent_downcasting', True)
 
 def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
     # Load the labels
