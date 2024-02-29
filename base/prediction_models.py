@@ -191,7 +191,9 @@ class Dense_NN(Prediction_Model):
                  mixed_dropout_dense=0.0,
                  mixed_dropout_cnn=0.0,
                  mixed_dropout_lstm=0.0,
-                 mixed_batchnorm=False,
+                 mixed_batchnorm_cnn=False,
+                 mixed_batchnorm_dense=False,
+                 mixed_batchnorm_before_relu=True,
                  conv1d_layers=[], # [filters, kernel_size, kernel_stride, dilation_rate]
                  convlstm1d_layers=[],
                  conv2d_layers=[],
@@ -231,9 +233,11 @@ class Dense_NN(Prediction_Model):
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
-            if mixed_batchnorm:
+            if mixed_batchnorm_cnn and mixed_batchnorm_before_relu:
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
+            if mixed_batchnorm_cnn and not mixed_batchnorm_before_relu:
+                x = layers.BatchNormalization()(x)
             if maxpool>1:
                 x = layers.MaxPool1D(maxpool)(x)
             if mixed_dropout_cnn > 0.0:
@@ -252,7 +256,7 @@ class Dense_NN(Prediction_Model):
                               dropout=mixed_dropout_cnn, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
                               recurrent_dropout=0.0 # 0.0 as I though this would allow for GPU processing... nope
                               )(x)
-            if mixed_batchnorm:
+            if mixed_batchnorm_cnn:
                 x = layers.BatchNormalization()(x)
             # if mixed_dropout_cnn > 0.0:
             #     x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
@@ -265,9 +269,11 @@ class Dense_NN(Prediction_Model):
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros')
                               )(x)
-            if mixed_batchnorm:
+            if mixed_batchnorm_cnn and mixed_batchnorm_before_relu:
                 x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
+            if mixed_batchnorm_cnn and not mixed_batchnorm_before_relu:
+                x = layers.BatchNormalization()(x)
             if mixed_dropout_cnn > 0.0:
                 x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
 
@@ -283,7 +289,7 @@ class Dense_NN(Prediction_Model):
                               dropout=mixed_dropout_lstm, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
                               recurrent_dropout=mixed_dropout_lstm
                               )(x)
-            if mixed_batchnorm:
+            if mixed_batchnorm_cnn:
                 x = layers.BatchNormalization()(x)
             # if mixed_dropout_lstm > 0.0:
             #     x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
@@ -296,7 +302,11 @@ class Dense_NN(Prediction_Model):
                                kernel_regularizer=regularizers.l2(l2_reg),
                                kernel_initializer=self.createInitializer('glorot_uniform'),
                                bias_initializer=self.createInitializer('zeros'))(x)
+            if mixed_batchnorm_dense and mixed_batchnorm_before_relu:
+                x = layers.BatchNormalization()(x)
             x = layers.Activation('relu')(x)
+            if mixed_batchnorm_dense and not mixed_batchnorm_before_relu:
+                x = layers.BatchNormalization()(x)
             if mixed_dropout_dense > 0.0:
                 x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
         
