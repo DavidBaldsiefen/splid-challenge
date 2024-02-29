@@ -118,19 +118,22 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
                                 val_keys=[ds_gen.val_keys[0]],
                                 stride=1)
 
-    
-    labels = np.concatenate([element for element in ds.map(lambda x,y,z: y[label_features[0]]).as_numpy_iterator()])
     identifiers = np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
-    preds = model.predict(ds, verbose=2).astype(np.int32) # we dont need float precision
-    df_columns = np.hstack([identifiers, labels.reshape(-1,1), preds]).astype(np.int32)
+    labels = np.concatenate([[element[ft] for ft in label_features] for element in ds.map(get_y_from_xyz).as_numpy_iterator()], axis=1).transpose(1,0)
+    
+    preds = np.asarray(model.predict(ds, verbose=2))[:,:,0].astype(np.int32).transpose(1,0) # we dont need float precision
+    df_columns = np.hstack([identifiers, labels, preds]).astype(np.int32)
 
-    df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + ['Preds'], dtype=np.int32)
+    df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + [ft+'_pred' for ft in label_features], dtype=np.int32)
 
     # TODO: zoom on main parts, plot postprocessed preds
     # TODO: add nice breaks https://stackoverflow.com/questions/5656798/is-there-a-way-to-make-a-discontinuous-axis-in-matplotlib
     if zoom:
-        max_val = np.max(df[label_features[0]])
-        timeindices = df.index[(df[label_features[0]] == max_val) | (df['Preds'] >= threshold)].to_numpy() # only consider locations with timeindex > 1
+        if len(label_features) == 1:
+            timeindices = df.index[(df[label_features[0]] >= threshold) | (df[f'{label_features[0]}_pred'] >= threshold)].to_numpy() # only consider locations with timeindex > 1
+        else:
+            timeindices = df.index[(df[label_features[0]] >= threshold) | (df[label_features[1]] >= threshold) |
+                                   (df[f'{label_features[0]}_pred'] >= threshold) | (df[f'{label_features[1]}_pred'] >= threshold)].to_numpy() # only consider locations with timeindex > 1
         print(timeindices.shape)
         for timeindex in timeindices:
             # Using index as timeindex????
@@ -140,10 +143,13 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
     fig, axes = plt.subplots(nrows=len(object_ids), ncols=1, figsize=(16,4*len(object_ids)))
     plt.tight_layout()
     for idx, object_id in enumerate(object_ids):
-        axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), label_features].to_numpy())
-        axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), 'Preds'].to_numpy())
+        
+        for ft in label_features:
+            axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), ft].to_numpy(), label=ft+'_gt')
+            axes[idx].plot(df.loc[df['ObjectID'] == int(object_id), ft+'_pred'].to_numpy(), label=ft, linestyle='--')
         axes[idx].axhline(y=threshold, color='g', linestyle='--')
         axes[idx].title.set_text(object_id)
+        axes[idx].legend()
     fig.show()
 
     
@@ -153,6 +159,7 @@ def postprocess_predictions(preds_df,
                             threshold=50.0,
                             add_initial_node=False,
                             clean_consecutives=True,
+                            clean_neighbors_below_distance=-1,
                             deepcopy=True):
     """Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
     """
@@ -167,12 +174,46 @@ def postprocess_predictions(preds_df,
 
     # remove consecutive location predictions, and replace them only with their center
     # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
-    # TODO: look at this again - why does it not happen on a per-direction basis???
-    if clean_consecutives:
+    if clean_consecutives and True:
+        dir_dfs = []
+        for dir in dirs:
+            dir_df = df.loc[df[f'{dir}_Loc'] == True].copy()
+            dir_df['consecutive'] = (dir_df['TimeIndex'] - dir_df['TimeIndex'].shift(1) != 1).cumsum()
+            # Filter rows where any number of consecutive values follow each other
+            dir_df=dir_df.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+            dir_dfs.append(dir_df)
+        df = pd.concat(dir_dfs)
+    # remove duplicates - if there are two detections at the same place (one for each dir), they will still be maintained
+    df = df.loc[df.duplicated(keep='first')==False].reset_index(drop=True)
+
+    if clean_consecutives and False:
         df = df.loc[(df['Any_Loc'] == True)]
         df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
         df=df.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
+
+    # remove TPs that are just too close together, as its likely they are duplicate detections
+    if clean_neighbors_below_distance>0:
+        dir_dfs = []
+        for dir in dirs:
+            # compute diffs between current and previous timeindex
+            sub_df = df.loc[df[f'{dir}_Loc'] == True].copy().reset_index(drop=True)
+            sub_df['diff'] = 3000
+            sub_df.loc[(df['TimeIndex'] > 0), 'diff'] = sub_df.loc[(df['TimeIndex'] > 0), 'TimeIndex'].diff()
+            sub_df.loc[sub_df['diff']<0, 'diff'] = 3000
+            # find the distances below the threshold
+            short_distance_indices = sub_df.index[sub_df['diff']<clean_neighbors_below_distance]
+            # for each diff loc where the previous entry is of the same object, replace both detections with one in the middle
+            for index in short_distance_indices:
+                if index == 0:
+                    continue
+                if sub_df.at[index-1, 'ObjectID'] == sub_df.at[index, 'ObjectID']:
+                    sub_df.at[index, 'TimeIndex'] = int((sub_df.at[index-1, 'TimeIndex']+sub_df.at[index, 'TimeIndex'])/2.0)
+                    sub_df.drop(index=(index-1), inplace=True)
+            dir_dfs.append(sub_df)
+        df = pd.concat(dir_dfs).reset_index(drop=True)
+            
+
 
     # add initial node
     if add_initial_node:
@@ -289,7 +330,7 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
         return {'Precision':precision, 'Recall':recall, 'F2':f2, 'RMSE':rmse, 'TP':total_tp, 'FP':total_fp, 'FN':total_fn,
                 'TP_ID':tp_ID,'FN_ID':fn_ID,'TP_IK':tp_IK,'FN_IK':fn_IK,'TP_AD':tp_AD,'FN_AD':fn_AD}
     else:
-        return evaluator, subm_df
+        return evaluator, subm_df, total_df
     
 
 def perform_evaluation_pipeline(ds_gen,
@@ -303,6 +344,7 @@ def perform_evaluation_pipeline(ds_gen,
                                 with_initial_node=False,
                                 nodes_to_consider=['ID', 'IK', 'AD'],
                                 prediction_stride=1,
+                                clean_neighbors_below_distance=-1,
                                 verbose=2):
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
@@ -325,6 +367,7 @@ def perform_evaluation_pipeline(ds_gen,
                                         threshold=threshold,
                                         add_initial_node=True,
                                         clean_consecutives=True,
+                                        clean_neighbors_below_distance=clean_neighbors_below_distance,
                                         deepcopy=False)
 
         scores = evaluate_localizer(subm_df=subm_df,

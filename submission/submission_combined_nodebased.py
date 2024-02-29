@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
     from base import evaluation
@@ -47,14 +47,16 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       diff_transform_features=[#'Eccentricity',
                                                               #'Semimajor Axis (m)',
                                                               #'Inclination (deg)',
-                                                              'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
-                                                              'True Anomaly (deg)',
-                                                              'Longitude (deg)',
-                                                              'Latitude (deg)'
+                                                              #'RAAN (deg)',
+                                                              #'Argument of Periapsis (deg)',
+                                                              #'True Anomaly (deg)',
+                                                              #'Longitude (deg)',
+                                                              #'Latitude (deg)'
                                                               ],
                                       sin_transform_features=[],
-                                      sin_cos_transform_features=[],
+                                      sin_cos_transform_features=['Argument of Periapsis (deg)',
+                                                                  'Longitude (deg)',
+                                                                  'True Anomaly (deg)',],
                                       overview_features_mean=[],
                                       overview_features_std=[],
                                       add_daytime_feature=False,
@@ -86,9 +88,10 @@ adik_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 adik_subm_df = localizer.postprocess_predictions(preds_df=adik_preds_df,
                                             dirs=['EW', 'NS'],
-                                            threshold=65.0, # tendency would be to set this value even higher
+                                            threshold=60.0, # tendency would be to set this value even higher
                                             add_initial_node=False, # Do not add initial nodes just yet
-                                            clean_consecutives=True)
+                                            clean_consecutives=True,
+                                            clean_neighbors_below_distance=-1)
 gc.collect()
 #-----------------------------------ID-------------------------------
 
@@ -98,16 +101,16 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'Semimajor Axis (m)',
                                                               'Inclination (deg)',
                                                               'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
+                                                              #'Argument of Periapsis (deg)',
                                                               #'True Anomaly (deg)',
-                                                              'Longitude (deg)',
+                                                              #'Longitude (deg)',
                                                               'Latitude (deg)'],
                                       diff_transform_features=[#'Eccentricity',
                                                               #'Semimajor Axis (m)',
                                                               #'Inclination (deg)',
                                                               #'RAAN (deg)',
                                                               #'Argument of Periapsis (deg)',
-                                                              'True Anomaly (deg)',
+                                                              #'True Anomaly (deg)',
                                                               #'Longitude (deg)',
                                                               #'Latitude (deg)'
                                                               ],
@@ -115,9 +118,9 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               #'Semimajor Axis (m)',
                                                               #'Inclination (deg)',
                                                               #'RAAN (deg)',
-                                                              #'Argument of Periapsis (deg)',
-                                                              #'True Anomaly (deg)',
-                                                              #'Longitude (deg)',
+                                                              'Argument of Periapsis (deg)',
+                                                              'True Anomaly (deg)',
+                                                              'Longitude (deg)',
                                                               #'Latitude (deg)'
                                                               ],
                                       sin_cos_transform_features=[],
@@ -154,9 +157,10 @@ id_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 id_subm_df = localizer.postprocess_predictions(preds_df=id_preds_df,
                                             dirs=['EW', 'NS'],
-                                            threshold=42.0,
+                                            threshold=35.0,
                                             add_initial_node=False,
-                                            clean_consecutives=True)
+                                            clean_consecutives=True,
+                                            clean_neighbors_below_distance=-1)
 
 # For ID, we know the node and type already. In theory there could be FPs where other nodes are, but for duplicates, the nodes&types are reset again
 id_subm_df['Node'] = 'ID'
@@ -198,21 +202,21 @@ classifier_scaler = pickle.load(open(SCALER_CLASSIFIER_DIR, 'rb'))
 ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                       non_transform_features=['Eccentricity',
                                                               'Semimajor Axis (m)',
-                                                              'Inclination (deg)',
+                                                              #'Inclination (deg)',
                                                               'RAAN (deg)',
                                                               #'Argument of Periapsis (deg)',
                                                               'True Anomaly (deg)',
-                                                              'Latitude (deg)',
+                                                              #'Latitude (deg)',
                                                               #'Longitude (deg)',
                                                               ],
                                       diff_transform_features=['Eccentricity',
                                                                'Semimajor Axis (m)',
                                                                'Inclination (deg)',
-                                                               'RAAN (deg)',
-                                                               'Argument of Periapsis (deg)',
+                                                               #'RAAN (deg)',
+                                                               #'Argument of Periapsis (deg)',
                                                                'True Anomaly (deg)',
                                                                #'Longitude (deg)',
-                                                               'Latitude (deg)'
+                                                               #'Latitude (deg)'
                                                                ],
                                       sin_transform_features=[ #'Inclination (deg)',
                                                                #'RAAN (deg)',
@@ -229,17 +233,17 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                                #'Longitude (deg)',
                                                                #'Latitude (deg)'
                                                                ],
-                                      overview_features_mean=['Eccentricity',
-                                                              'Semimajor Axis (m)',
-                                                              'Inclination (deg)',
-                                                              'RAAN (deg)',
-                                                              'Argument of Periapsis (sin)',
+                                      overview_features_mean=[#'Eccentricity',
+                                                              #'Semimajor Axis (m)',
+                                                              #'Inclination (deg)',
+                                                              #'RAAN (deg)',
+                                                              #'Argument of Periapsis (sin)',
                                                               #'True Anomaly (deg)',
                                                               #'Latitude (deg)',
-                                                              'Longitude (sin)',
+                                                              #'Longitude (sin)',
                                                               ],
-                                      overview_features_std=['Latitude (deg)',
-                                                             'Argument of Periapsis (sin)'
+                                      overview_features_std=[#'Latitude (deg)',
+                                                             #'Argument of Periapsis (sin)'
                                                              ],
                                       add_daytime_feature=False,
                                       add_yeartime_feature=False,
