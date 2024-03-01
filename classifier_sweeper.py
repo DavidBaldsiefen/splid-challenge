@@ -4,6 +4,7 @@ import wandb
 from wandb.keras import WandbMetricsLogger
 from pathlib import Path
 import gc
+import pickle
 
 from base import datahandler, prediction_models, evaluation, utils, classifier
 
@@ -26,12 +27,13 @@ def parameter_sweep(config=None):
         # Create Dataset
         utils.set_random_seed(42)
 
-        non_transform_features = ['Eccentricity',
+        non_transform_features =['Eccentricity',
                                 'Semimajor Axis (m)',
                                 'Inclination (deg)',
                                 'RAAN (deg)',
-                                #'Argument of Periapsis (deg)',
+                                'Argument of Periapsis (deg)',
                                 #'True Anomaly (deg)',
+                                'Longitude (deg)',
                                 'Latitude (deg)']
         diff_transform_features=[]
         sin_transform_features = []
@@ -48,7 +50,7 @@ def parameter_sweep(config=None):
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
-                                                sin_transform_features=['Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Longitude (deg)'], # TEMPORARY
+                                                sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
                                                 overview_features_mean=config.ds_gen['overview_features_mean'],
                                                 overview_features_std=config.ds_gen['overview_features_std'],
@@ -57,7 +59,7 @@ def parameter_sweep(config=None):
                                                 add_linear_timeindex=config.ds_gen['add_linear_timeindex'],
                                                 with_labels=True,
                                                 pad_location_labels=config.ds_gen['pad_location_labels'],
-                                                nonbinary_padding=[100.0, 70.0, 49.0, 34.0, 24.0],
+                                                nonbinary_padding=[100.0],
                                                 train_val_split=0.8,
                                                 input_stride=config.ds_gen['input_stride'],
                                                 padding='zero',
@@ -68,22 +70,27 @@ def parameter_sweep(config=None):
                                                                         'IK':1.0,
                                                                         'AD':1.0,
                                                                         'SS':1.0},
+                                                nodes_to_include_as_locations=config.ds_gen['nodes_to_include_as_locations'],
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
+                                                sort_inputs=True,
                                                 seed=11,
                                                 deepcopy=False)
         
-        print('Trn-keys:', ds_gen.train_keys)
-        print('Val-keys:', ds_gen.val_keys)        
+        print('Trn-keys:', ds_gen.train_keys[:10])
+        print('Val-keys:', ds_gen.val_keys[:10])
         
 
-        train_ds, val_ds = ds_gen.get_datasets(batch_size=512,
+        train_ds, val_ds = ds_gen.get_datasets(batch_size=256,
                                                label_features=[f'{dir}_Type' for dir in dirs],
                                                with_identifier=False,
                                                shuffle=True,
-                                               only_nodes=True,
-                                               stride=config.ds_gen['stride'])
+                                               only_nodes=True if config.ds_gen['keep_label_stride'] <= 1 else False,
+                                               stride=config.ds_gen['stride'],
+                                               keep_label_stride=config.ds_gen['keep_label_stride'],
+                                               stride_offset=0 if config.ds_gen['keep_label_stride'] <= 1 else 250,
+                                               verbose=0)
         
         print(train_ds.element_spec)
 
@@ -96,7 +103,9 @@ def parameter_sweep(config=None):
                                            mixed_dropout_dense=config.model['mixed_dropout_dense'],
                                            mixed_dropout_cnn=config.model['mixed_dropout_cnn'],
                                            mixed_dropout_lstm=config.model['mixed_dropout_lstm'],
-                                           mixed_batchnorm=config.model['mixed_batchnorm'],
+                                           mixed_batchnorm_cnn=config.model['mixed_batchnorm_cnn'],
+                                           mixed_batchnorm_dense=config.model['mixed_batchnorm_dense'],
+                                           mixed_batchnorm_before_relu=config.model['mixed_batchnorm_before_relu'],
                                            lr_scheduler=config.model['lr_scheduler'],
                                            output_type='classification',
                                            seed=0)
@@ -115,18 +124,23 @@ def parameter_sweep(config=None):
         # train
         hist = model.fit(train_ds,
                          val_ds=val_ds,
-                         epochs=350,
+                         epochs=500,
                          plot_hist=False,
-                         early_stopping=40,
+                         early_stopping=42,
                          target_metric='val_EW_Type_accuracy' if len(dirs) > 1 else 'val_accuracy',
                          #class_weight=class_weights, 
                          callbacks=[WandbMetricsLogger()],
                          verbose=2)
 
-        file_path = wandb.run.dir+"\\model_" + wandb.run.id + ".hdf5"
+        file_path = wandb.run.dir+"/model_" + wandb.run.id + ".hdf5"
         print(f"Saving model to \"{file_path}\"")
         model.model.save(file_path)
         wandb.save(file_path)
+        if config.ds_gen['per_object_scaling'] == False:
+            scaler_path = wandb.run.dir+"/scaler_" + wandb.run.id + ".pkl"
+            print(f"Saving scaler to \"{scaler_path}\"")
+            pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
+            wandb.save(scaler_path)
 
         train_ds = None
         val_ds = None
@@ -145,11 +159,17 @@ def parameter_sweep(config=None):
                                 object_limit=None,
                                 only_nodes=True,
                                 confusion_matrix=False,
-                                prediction_batches=3,
+                                prediction_batches=4,
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-        oneshot_df = classifier.apply_one_shot_method(preds_df=pred_df, location_df=ground_truth_df, dirs=dirs)
-        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=oneshot_df)
+        ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
+        typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
+        classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
+        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df)
+
+
         precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
         wandb.define_metric('Precision', summary="max")
         wandb.define_metric('TP', summary="max")
@@ -169,8 +189,12 @@ def parameter_sweep(config=None):
                                 only_nodes=True,
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-        oneshot_df = classifier.apply_one_shot_method(preds_df=pred_df, location_df=ground_truth_df, dirs=dirs)
-        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=oneshot_df)
+        ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
+        typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
+        classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
+        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df)
         precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
         wandb.define_metric('train_Precision', summary="max")
         wandb.define_metric('train_TP', summary="max")
@@ -197,7 +221,7 @@ sweep_configuration = {
             "parameters" : {
                 'RAAN' : {"values": ['non']},
                 'Argument_of_Periapsis' : {"values": ['sin']},
-                'True_Anomaly' : {"values": ['sin']},
+                'True_Anomaly' : {"values": ['sin', 'diff']},
                 'Longitude' : {"values": ['sin']},
             }
         },
@@ -210,31 +234,35 @@ sweep_configuration = {
                                                    ['Latitude (deg)', 'Argument of Periapsis (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
+            "nodes_to_include_as_locations" : {"values": [['SS', 'AD', 'IK', 'ID']]},
             "stride" : {"values": [1]},
+            "keep_label_stride" : {"values": [1]}, # if 1, keep only labels
             "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "add_linear_timeindex" : {"values": [True, False]},
-            "input_history_steps" : {"values": [32,16,1]},
+            "add_linear_timeindex" : {"values": [False]},
+            "input_history_steps" : {"values": [16]},
             "input_future_steps" : {"values": [128]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[32,6,1,1,1],[32,6,1,1,1],[32,6,1,1,1]]
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]]
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.001]},
             "input_dropout" : {"values": [0.0]},
-            "mixed_batchnorm" : {"values": [False]},
+            "mixed_batchnorm_cnn" : {"values": [False]},
+            "mixed_batchnorm_dense" : {"values": [False]},
+            "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.0, 0.05, 0.1]},
+            "mixed_dropout_cnn" : {"values": [0.0, 0.1]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.008,300,0.9]]},
+            "lr_scheduler" : {"values": [[0.005]]},
             "seed" : {"values": [0]},
             }
         },
