@@ -214,7 +214,7 @@ class DatasetGenerator():
                     split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
                     split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
             if ft in sin_transform_features:
-                self._input_features.append(newft_cos)
+                self._input_features.append(newft_sin)
             if ft in sin_cos_transform_features:
                 self._input_features.append(newft_cos)
 
