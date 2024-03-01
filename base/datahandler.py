@@ -204,20 +204,19 @@ class DatasetGenerator():
                 split_df[key].loc[split_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] = split_df[key].loc[split_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] + 360.0
                 split_df[key].loc[split_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] = split_df[key].loc[split_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] - 360.0
         # Run sin+cos over deg fields, to bring 0deg and 360deg next to each other
-        if sin_transform_features or sin_cos_transform_features:
-            if verbose > 0:
-                print(f"Sin-Transforming features: {sin_transform_features}")
-                print(f"Sin-Cos-Transforming features: {sin_cos_transform_features}")
-            for ft in sin_transform_features + sin_cos_transform_features:
-                newft_sin = ft[:-5] + '(sin)'
-                newft_cos = ft[:-5] + '(cos)'
-                for key in self._train_keys + self._val_keys:
+        if verbose > 0:
+            print(f"Sin-Transforming features: {sin_transform_features}")
+            print(f"Sin-Cos-Transforming features: {sin_cos_transform_features}")
+        for ft in ['Inclination (deg)', 'RAAN (deg)', 'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)', 'Longitude (deg)']:
+            newft_sin = ft[:-5] + '(sin)'
+            newft_cos = ft[:-5] + '(cos)'
+            for key in self._train_keys + self._val_keys:
                     split_df[key][newft_sin] = np.sin(np.deg2rad(split_df[key][ft]))
-                    if ft in sin_cos_transform_features:
-                        split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
-                self._input_features.append(newft_sin)
-                if ft in sin_cos_transform_features:
-                    self._input_features.append(newft_cos)
+                    split_df[key][newft_cos] = np.cos(np.deg2rad(split_df[key][ft]))
+            if ft in sin_transform_features:
+                self._input_features.append(newft_cos)
+            if ft in sin_cos_transform_features:
+                self._input_features.append(newft_cos)
 
         if diff_transform_features:
             if verbose > 0:
