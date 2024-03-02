@@ -11,7 +11,7 @@ import pickle
 from base import datahandler, prediction_models, utils, localizer
 
 
-directions=['EW', 'NS']
+
 
 class ClearMemoryCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -30,11 +30,12 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        challenge_data_dir = Path('dataset/phase_1_v2/')
+        challenge_data_dir = Path('dataset/phase_1_v3/')
         data_dir = challenge_data_dir / "train"
         labels_dir = challenge_data_dir / 'train_labels.csv'
         split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
+        directions=config.training['directions']
         print(f"Directions: {directions}")
 
         # Create Dataset
@@ -122,7 +123,7 @@ def parameter_sweep(config=None):
                                            mixed_batchnorm_dense=config.model['mixed_batchnorm_dense'],
                                            mixed_batchnorm_before_relu=config.model['mixed_batchnorm_before_relu'],
                                            lr_scheduler=config.model['lr_scheduler'],
-                                           output_type='relgression',
+                                           output_type='regression',
                                            final_activation='linear',
                                            seed=0)
         model.summary()
@@ -170,7 +171,7 @@ def parameter_sweep(config=None):
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         output_dirs=directions,
                                         prediction_batches=5,
-                                        thresholds = np.linspace(30.0, 75.0, 12),
+                                        thresholds = np.linspace(30.0, 85.0, 12),
                                         object_limit=None,
                                         with_initial_node=False,
                                         nodes_to_consider=config.training['nodes_to_consider'],
@@ -244,7 +245,7 @@ sweep_configuration = {
                 'Inclination' : {"values": [True]},
                 'RAAN' : {"values": [False]},
                 'Argument_of_Periapsis' : {"values": [True]},
-                'True_Anomaly' : {"values": [True]},
+                'True_Anomaly' : {"values": [False]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
             }
@@ -289,7 +290,7 @@ sweep_configuration = {
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
-            "deep_layer_in_output" : {"values": [True]},
+            "deep_layer_in_output" : {"values": [False]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
@@ -315,7 +316,8 @@ sweep_configuration = {
                                 },
             "nodes_to_consider" : {"values": [['AD', 'IK']]
                                 },
-            "batch_size" : {"values": [2048]}
+            "batch_size" : {"values": [2048]},
+            "directions" : {"values" : [['EW', 'NS']]}
             }
         },
     },
