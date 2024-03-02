@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     from base import evaluation
@@ -40,7 +40,7 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               'Semimajor Axis (m)',
                                                               'Inclination (deg)',
                                                               'RAAN (deg)',
-                                                              'Argument of Periapsis (deg)',
+                                                              #'Argument of Periapsis (deg)',
                                                               #'True Anomaly (deg)',
                                                               #'Longitude (deg)',
                                                               'Latitude (deg)'],
@@ -53,10 +53,10 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               #'Longitude (deg)',
                                                               #'Latitude (deg)'
                                                               ],
-                                      sin_transform_features=[],
-                                      sin_cos_transform_features=['Argument of Periapsis (deg)',
-                                                                  'Longitude (deg)',
-                                                                  'True Anomaly (deg)',],
+                                      sin_transform_features=['Argument of Periapsis (deg)',
+                                                              'Longitude (deg)',
+                                                              'True Anomaly (deg)'],
+                                      sin_cos_transform_features=[],
                                       overview_features_mean=[],
                                       overview_features_std=[],
                                       add_daytime_feature=False,
@@ -88,7 +88,7 @@ adik_preds_df = localizer.create_prediction_df(ds_gen=ds_gen,
 
 adik_subm_df = localizer.postprocess_predictions(preds_df=adik_preds_df,
                                             dirs=['EW', 'NS'],
-                                            threshold=60.0, # tendency would be to set this value even higher
+                                            threshold=55.0, # tendency would be to set this value even higher
                                             add_initial_node=False, # Do not add initial nodes just yet
                                             clean_consecutives=True,
                                             clean_neighbors_below_distance=-1)
