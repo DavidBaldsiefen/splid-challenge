@@ -40,17 +40,24 @@ def parameter_sweep(config=None):
         # Create Dataset
         utils.set_random_seed(42)
 
-        non_transform_features =['Eccentricity',
-                                'Semimajor Axis (m)',
-                                'Inclination (deg)',
-                                'RAAN (deg)',
-                                'Argument of Periapsis (deg)',
-                                #'True Anomaly (deg)',
-                                #'Longitude (deg)',
-                                'Latitude (deg)']
+        non_transform_features =[]
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
+
+        for key, value in config.input_features.items():
+            ft_name = key
+            if key == 'Eccentricity': ft_name = 'Eccentricity'
+            elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
+            elif key == 'Inclination': ft_name = 'Inclination (deg)'
+            elif key == 'RAAN': ft_name = 'RAAN (deg)'
+            elif key == 'Argument_of_Periapsis': ft_name = 'Argument of Periapsis (deg)'
+            elif key == 'True_Anomaly': ft_name = 'True Anomaly (deg)'
+            elif key == 'Longitude': ft_name = 'Longitude (deg)'
+            elif key == 'Latitude': ft_name = 'Latitude (deg)'
+            else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
+            if value == True:
+                non_transform_features += [ft_name]
 
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
@@ -87,10 +94,10 @@ def parameter_sweep(config=None):
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
                                                 sort_inputs=True,
-                                                seed=181,
+                                                seed=11,
                                                 deepcopy=False)
-        # print('Trn-keys:', ds_gen.train_keys)
-        # print('Val-keys:', ds_gen.val_keys)
+        print('Trn-keys:', ds_gen.train_keys[:10])
+        print('Val-keys:', ds_gen.val_keys[:10])
         train_ds, val_ds = ds_gen.get_datasets(2048,
                                                label_features=[f'{dir}_Node_Location_nb' for dir in directions],
                                                shuffle=True,
@@ -104,15 +111,18 @@ def parameter_sweep(config=None):
         model = prediction_models.Dense_NN(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
+                                           deep_layer_in_output=config.model['deep_layer_in_output'],
                                            lstm_layers=config.model['lstm_layers'],
                                            l2_reg=config.model['l2_reg'],
                                            input_dropout=config.model['input_dropout'],
                                            mixed_dropout_dense=config.model['mixed_dropout_dense'],
                                            mixed_dropout_cnn=config.model['mixed_dropout_cnn'],
                                            mixed_dropout_lstm=config.model['mixed_dropout_lstm'],
-                                           mixed_batchnorm=config.model['mixed_batchnorm'],
+                                           mixed_batchnorm_cnn=config.model['mixed_batchnorm_cnn'],
+                                           mixed_batchnorm_dense=config.model['mixed_batchnorm_dense'],
+                                           mixed_batchnorm_before_relu=config.model['mixed_batchnorm_before_relu'],
                                            lr_scheduler=config.model['lr_scheduler'],
-                                           output_type='regression',
+                                           output_type='relgression',
                                            final_activation='linear',
                                            seed=0)
         model.summary()
@@ -129,7 +139,7 @@ def parameter_sweep(config=None):
         global_wandb_step = 0
         for strides, offset, keep_label, epochs in config.training['training_sets']:
             print(f"Strides: {strides} Offset: {offset} Keeping Label: {keep_label} Epochs: {epochs}")
-            train_ds, val_ds = ds_gen.get_datasets(2048,
+            train_ds, val_ds = ds_gen.get_datasets(config.training['batch_size'],
                                                 label_features=[f'{dir}_Node_Location_nb' for dir in directions],
                                                 shuffle=True,
                                                 only_ew_sk=False,
@@ -160,7 +170,7 @@ def parameter_sweep(config=None):
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         output_dirs=directions,
                                         prediction_batches=5,
-                                        thresholds = np.linspace(30.0, 70.0, 11),
+                                        thresholds = np.linspace(30.0, 75.0, 12),
                                         object_limit=None,
                                         with_initial_node=False,
                                         nodes_to_consider=config.training['nodes_to_consider'],
@@ -185,7 +195,7 @@ def parameter_sweep(config=None):
         model.model.save(file_path)
         wandb.save(file_path)
         if config.ds_gen['per_object_scaling'] == False:
-            scaler_path = wandb.run.dir+"/scaler_" + wandb.run.id + ".hdf5"
+            scaler_path = wandb.run.dir+"/scaler_" + wandb.run.id + ".pkl"
             print(f"Saving scaler to \"{scaler_path}\"")
             pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
             wandb.save(scaler_path)
@@ -207,7 +217,7 @@ def parameter_sweep(config=None):
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         output_dirs=directions,
                                         prediction_batches=5,
-                                        thresholds = [60.0],
+                                        thresholds = [50.0],
                                         object_limit=train_object_limit,
                                         with_initial_node=False,
                                         nodes_to_consider=config.training['nodes_to_consider'],
@@ -227,13 +237,25 @@ sweep_configuration = {
     "method": "grid",
     "metric": {"goal": "maximize", "name": "best_F2"},
     "parameters": {
+        "input_features" : {
+            "parameters" : {
+                'Eccentricity' : {"values": [True]},
+                'Semimajor_Axis' : {"values": [True]},
+                'Inclination' : {"values": [True]},
+                'RAAN' : {"values": [False]},
+                'Argument_of_Periapsis' : {"values": [True]},
+                'True_Anomaly' : {"values": [True]},
+                'Longitude' : {"values": [False]},
+                'Latitude' : {"values": [True]},
+            }
+        },
         "feature_engineering" : {
             "parameters" : {
-                'RAAN' : {"values": ['diff']},
-                'Argument_of_Periapsis' : {"values": ['diff']},
-                'True_Anomaly' : {"values": ['diff']},
-                'Longitude' : {"values": ['diff']},
-                'Latitude' : {"values": ['diff']},
+                'RAAN' : {"values": ['non']},
+                'Argument_of_Periapsis' : {"values": ['sin']},
+                'True_Anomaly' : {"values": ['sin']},
+                'Longitude' : {"values": ['sin']},
+                'Latitude' : {"values": ['non']},
             }
         },
         "ds_gen" : {
@@ -242,18 +264,18 @@ sweep_configuration = {
             'overview_features_std' : {"values" : [[]]},
             "pad_location_labels" : {"values": [0]},
             "nonbinary_padding" : {"values": [
-                                              [110.0, 70.0, 49.0, 34.0, 24.0]
+                                              [110.0, 70.0, 49.0, 34.0, 24.0, 12.0]
                                               ]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [1.0]},
-            "class_multiplier_IK" : {"values": [0.0]},
-            "class_multiplier_AD" : {"values": [0.0]},
-            "input_history_steps" : {"values": [256]},
-            "input_future_steps" : {"values": [256]},
+            "class_multiplier_ID" : {"values": [0.0]},
+            "class_multiplier_IK" : {"values": [1.0]},
+            "class_multiplier_AD" : {"values": [1.0]},
+            "input_history_steps" : {"values": [128]},
+            "input_future_steps" : {"values": [32]},
             }
         },
         "model" : {
@@ -267,14 +289,17 @@ sweep_configuration = {
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
+            "deep_layer_in_output" : {"values": [True]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
-            "mixed_batchnorm" : {"values": [True]},
+            "mixed_batchnorm_cnn" : {"values": [True]},
+            "mixed_batchnorm_dense" : {"values": [True]},
+            "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.1]},
+            "mixed_dropout_cnn" : {"values": [0.05]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.005, 7000, 0.9]]},
+            "lr_scheduler" : {"values": [[0.005]]},
             "seed" : {"values": [0]},
             }
         },
@@ -288,8 +313,9 @@ sweep_configuration = {
                                     [[5,0,True,25],[5,1,True,25],[5,2,True,25]],
                                     ]
                                 },
-            "nodes_to_consider" : {"values": [['ID']]
-                                }
+            "nodes_to_consider" : {"values": [['AD', 'IK']]
+                                },
+            "batch_size" : {"values": [2048]}
             }
         },
     },

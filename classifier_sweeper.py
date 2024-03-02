@@ -27,18 +27,24 @@ def parameter_sweep(config=None):
         # Create Dataset
         utils.set_random_seed(42)
 
-        non_transform_features =['Eccentricity',
-                                'Semimajor Axis (m)',
-                                'Inclination (deg)',
-                                'RAAN (deg)',
-                                'Argument of Periapsis (deg)',
-                                #'True Anomaly (deg)',
-                                'Longitude (deg)',
-                                'Latitude (deg)']
+        non_transform_features =[]
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
 
+        for key, value in config.input_features.items():
+            ft_name = key
+            if key == 'Eccentricity': ft_name = 'Eccentricity'
+            elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
+            elif key == 'Inclination': ft_name = 'Inclination (deg)'
+            elif key == 'RAAN': ft_name = 'RAAN (deg)'
+            elif key == 'Argument_of_Periapsis': ft_name = 'Argument of Periapsis (deg)'
+            elif key == 'True_Anomaly': ft_name = 'True Anomaly (deg)'
+            elif key == 'Longitude': ft_name = 'Longitude (deg)'
+            elif key == 'Latitude': ft_name = 'Latitude (deg)'
+            else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
+            if value == True:
+                non_transform_features += [ft_name]
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
             if value == 'non': non_transform_features += [ft_name]
@@ -97,6 +103,7 @@ def parameter_sweep(config=None):
         model = prediction_models.Dense_NN(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
+                                           deep_layer_in_output=config.model['deep_layer_in_output'],
                                            lstm_layers=config.model['lstm_layers'],
                                            l2_reg=config.model['l2_reg'],
                                            input_dropout=config.model['input_dropout'],
@@ -187,6 +194,7 @@ def parameter_sweep(config=None):
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
                                 object_limit=None,
                                 only_nodes=True,
+                                prediction_batches=5,
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
@@ -206,6 +214,9 @@ def parameter_sweep(config=None):
         
         split_dataframes = None
         ds_gen = None
+        del typed_df
+        del classified_df
+        del evaluator
         del split_dataframes
         del ds_gen
         gc.collect()
@@ -217,26 +228,38 @@ sweep_configuration = {
     "metric": {"goal": "maximize", "name": "Precision"},
     #"run_cap":60,
     "parameters": {
+        "input_features" : {
+            "parameters" : {
+                'Eccentricity' : {"values": [True]},
+                'Semimajor_Axis' : {"values": [True]},
+                'Inclination' : {"values": [True]},
+                'RAAN' : {"values": [False]},
+                'Argument_of_Periapsis' : {"values": [True]},
+                'True_Anomaly' : {"values": [True]},
+                'Longitude' : {"values": [False]},
+                'Latitude' : {"values": [True]},
+            }
+        },
         "feature_engineering" : {
             "parameters" : {
-                'RAAN' : {"values": ['non']},
-                'Argument_of_Periapsis' : {"values": ['sin']},
-                'True_Anomaly' : {"values": ['sin', 'diff']},
+                'RAAN' : {"values": ['sin']},
+                'Argument_of_Periapsis' : {"values": ['diff']},
+                'True_Anomaly' : {"values": ['diff']},
                 'Longitude' : {"values": ['sin']},
             }
         },
         "ds_gen" : {
             "parameters" : {
             'overview_features_mean' : {"values" : [[],
-                                                   ['Longitude (sin)', 'RAAN (deg)', 'Eccentricity']
+                                                   #['Longitude (sin)', 'RAAN (deg)', 'Eccentricity']
                                                    ]},
             'overview_features_std' : {"values" : [[],
-                                                   ['Latitude (deg)', 'Argument of Periapsis (sin)']
+                                                   #['Latitude (deg)', 'Argument of Periapsis (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
             "nodes_to_include_as_locations" : {"values": [['SS', 'AD', 'IK', 'ID']]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [1]}, # if 1, keep only labels
+            "keep_label_stride" : {"values": [1, 200, 300, 400, 500, 600, 700, 800, 900, 1000]}, # if 1, keep only labels
             "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
@@ -253,6 +276,7 @@ sweep_configuration = {
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
+            "deep_layer_in_output" : {"values": [True]},
             "lstm_layers" : {"values": [[]]},
             "l2_reg" : {"values": [0.001]},
             "input_dropout" : {"values": [0.0]},
@@ -260,7 +284,7 @@ sweep_configuration = {
             "mixed_batchnorm_dense" : {"values": [False]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.0, 0.1]},
+            "mixed_dropout_cnn" : {"values": [0.05]},
             "mixed_dropout_lstm" : {"values": [0.0]},
             "lr_scheduler" : {"values": [[0.005]]},
             "seed" : {"values": [0]},
