@@ -186,7 +186,7 @@ def postprocess_predictions(preds_df,
     # remove duplicates - if there are two detections at the same place (one for each dir), they will still be maintained
     df = df.loc[df.duplicated(keep='first')==False].reset_index(drop=True)
 
-    if clean_consecutives and False:
+    if clean_consecutives and False:    # Legacy method
         df = df.loc[(df['Any_Loc'] == True)]
         df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other

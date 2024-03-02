@@ -199,6 +199,7 @@ class Dense_NN(Prediction_Model):
                  conv2d_layers=[],
                  lstm_layers=[],
                  dense_layers=[32,32],
+                 deep_layer_in_output=False,
                  l2_reg=0.0,
                  lr_scheduler=[],
                  output_type='classification', # 'binary', 'regression'
@@ -296,7 +297,7 @@ class Dense_NN(Prediction_Model):
 
         # dense stack
         x = layers.Flatten()(x)
-        for units in dense_layers:
+        for units in dense_layers[:len(dense_layers) if not deep_layer_in_output else len(dense_layers)-1]:
             x = layers.Dense(units=units,
                                activation=None,
                                kernel_regularizer=regularizers.l2(l2_reg),
@@ -325,13 +326,27 @@ class Dense_NN(Prediction_Model):
             output_activation = final_activation if final_activation is not None else ('sigmoid' if output_type=='binary'
                                                                                        else ('softmax' if output_type=='classification'
                                                                                        else 'linear'))
+            output = x
+            if deep_layer_in_output:
+                output = layers.Dense(units=dense_layers[-1],
+                               activation=None,
+                               kernel_regularizer=regularizers.l2(l2_reg),
+                               kernel_initializer=self.createInitializer('glorot_uniform'),
+                               bias_initializer=self.createInitializer('zeros'))(output)
+                if mixed_batchnorm_dense and mixed_batchnorm_before_relu:
+                    output = layers.BatchNormalization()(output)
+                output = layers.Activation('relu')(output)
+                if mixed_batchnorm_dense and not mixed_batchnorm_before_relu:
+                    output = layers.BatchNormalization()(output)
+                if mixed_dropout_dense > 0.0:
+                    output = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(output)
             
             output = layers.Dense(units=n_units,
                                 activation=output_activation,
                                 kernel_regularizer=regularizers.l2(l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
-                                name=out_feature)(x)
+                                name=out_feature)(output)
             outputs.append(output)
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
