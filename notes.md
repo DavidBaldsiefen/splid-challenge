@@ -14,12 +14,13 @@
 - separate EW/NS again, at least for ADIK localizer (see shap analysis results)
     - alternative idea: split model outputs earlier, i.e. one hidden layer per output
 - use per-direction thresholds for localizers
+- dynamic threshold that starts low, and then increases until n detections = n expected nodes?
 - remove NS detections during EW-NK, remove ID detections during SK
 - more regularization on classifier, less on localizer
 - run two classifiers, one that just detects NK vs SK and then one that classifies between EK/CK/HK
 - Overview fts as separate input
 - Data Augumentation (e.g. noisy data)
-- Scale on known max-min 
+- Scale on known max-min
 - 24h bandpass filter on fts. such as true anomaly
 - Make use of timestamp data in updated ds
 - potentially improve clean consecutives by using approaches such as best-fit
