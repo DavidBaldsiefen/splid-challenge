@@ -1,16 +1,33 @@
 
-### TODOs
+### Current general approach
 
-- TODO: find out if we can directly train for precision/challenge metrics. Maybe at least precision?
-- TODO: there is some kind of bug in the prediction_models where callbacks get maintained even when changed
-- TODO: Make use of timestamp data in updated ds
-- Maybe predict for whole timeseries at once? As shitty baseline?
-- Try localizing nodes first, then classifying them. The latter could be autoregressive, as nodes depend on the previous nodes. However, the training should use the real past outputs maybe?
-- I definetely need to preprocess more values -> Longitude has weird value range, negative vals but also vals over 180?
-- combine own localizer with heursitics classification
-- use class weight in localizer to penalize FN more than FP -> should improve recall (strong class imbalance)
-- Try a 2-step classifier: 1) classify only the ID/AD/IK nodes 2) identify the single propulsion type per direction per object
-- should probably really implement k fold crossval, at least for fast algorithms (like the classifier)
+- 1. Localize ID nodes with one model, then AD+IK with another
+- 2. Add SS nodes
+- 3. Run Classifier (assuming ID nodes are ID nodes for certain)
+
+### TODOs & Ideas
+
+- Train on whole dataset
+- separate EW/NS again, at least for ADIK localizer (see shap analysis results)
+    - alternative idea: split model outputs earlier, i.e. one hidden layer per output
+- remove NS detections during EW-NK, remove ID detections during SK
+- more regularization on classifier, less on localizer
+- run two classifiers, one that just detects NK vs SK and then one that classifies between EK/CK/HK
+- Overview fts as separate input
+- Data Augumentation (e.g. noisy data)
+- Scale on known max-min 
+- 24h bandpass filter on fts. such as true anomaly
+- Make use of timestamp data in updated ds
+- potentially improve clean consecutives by using approaches such as best-fit
+- k-fold cross val
+
+### Other interesting ideas for which I wont have time
+
+- Autoregressive models
+- Stateful LSTMs, Transformers
+- Divide&Conquer style approach for localizers
+- temporal embedding, temporal aggregation, TCN
+- one-shot localizer (one pred that predicts whole object)
 
 
 ### Challenge reverse-engineering:
