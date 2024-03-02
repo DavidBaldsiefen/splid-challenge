@@ -8,6 +8,7 @@
 ### TODOs & Ideas
 
 - Train on whole dataset
+- use save-best only, at least on classifier!
 - separate EW/NS again, at least for ADIK localizer (see shap analysis results)
     - alternative idea: split model outputs earlier, i.e. one hidden layer per output
 - remove NS detections during EW-NK, remove ID detections during SK
