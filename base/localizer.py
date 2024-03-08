@@ -160,6 +160,7 @@ def postprocess_predictions(preds_df,
                             add_initial_node=False,
                             clean_consecutives=True,
                             clean_neighbors_below_distance=-1,
+                            legacy=False,
                             deepcopy=True):
     """Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
     """
@@ -174,7 +175,7 @@ def postprocess_predictions(preds_df,
 
     # remove consecutive location predictions, and replace them only with their center
     # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
-    if clean_consecutives and True:
+    if clean_consecutives and not legacy:
         dir_dfs = []
         for dir in dirs:
             dir_df = df.loc[df[f'{dir}_Loc'] == True].copy()
@@ -186,7 +187,7 @@ def postprocess_predictions(preds_df,
     # remove duplicates - if there are two detections at the same place (one for each dir), they will still be maintained
     df = df.loc[df.duplicated(keep='first')==False].reset_index(drop=True)
 
-    if clean_consecutives and False:    # Legacy method
+    if clean_consecutives and legacy:    # Legacy method
         df = df.loc[(df['Any_Loc'] == True)]
         df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
@@ -345,6 +346,7 @@ def perform_evaluation_pipeline(ds_gen,
                                 nodes_to_consider=['ID', 'IK', 'AD'],
                                 prediction_stride=1,
                                 clean_neighbors_below_distance=-1,
+                                legacy_postprocessing=False,
                                 verbose=2):
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
@@ -367,6 +369,7 @@ def perform_evaluation_pipeline(ds_gen,
                                         threshold=threshold,
                                         add_initial_node=True,
                                         clean_consecutives=True,
+                                        legacy=legacy_postprocessing,
                                         clean_neighbors_below_distance=clean_neighbors_below_distance,
                                         deepcopy=False)
 
