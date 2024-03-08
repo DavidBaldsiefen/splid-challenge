@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from tensorflow.data import Dataset
 import gc
+import pickle
+from base import datahandler
+#import datahandler
 
 # Helper lambdas
 def get_x_from_xy(x,y):
@@ -152,8 +156,6 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
         axes[idx].legend()
     fig.show()
 
-    
-
 def postprocess_predictions(preds_df,
                             dirs=['EW', 'NS'],
                             threshold=50.0,
@@ -239,6 +241,77 @@ def postprocess_predictions(preds_df,
     df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
     return df
+
+def perform_submission_pipeline(localizer_dir,
+                                scaler_dir,
+                                split_dataframes,
+                                output_dirs,
+                                threshold,
+                                legacy_clean_consecutives=False,
+                                clean_neighbors_below_distance=-1,
+                                non_transform_features=[],
+                                diff_transform_features=[],
+                                sin_transform_features=[],
+                                sin_cos_transform_features=[],
+                                overview_features_mean=[],
+                                overview_features_std=[],
+                                add_daytime_feature=False,
+                                add_yeartime_feature=False,
+                                add_linear_timeindex=False,
+                                padding='zero',
+                                input_history_steps=128,
+                                input_future_steps=128,
+                                input_stride=2,
+                                per_object_scaling=False,
+                                ):
+    """Perform the entire submission pipeline, i.e. create ds_gen, run predictor, perform postprocessing"""
+
+    print(f"Predicting locations using model \"{localizer_dir}\" and scaler \"{scaler_dir}\"")
+
+    scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
+    ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+                                            non_transform_features=non_transform_features,
+                                            diff_transform_features=diff_transform_features,
+                                            sin_transform_features=sin_transform_features,
+                                            sin_cos_transform_features=sin_cos_transform_features,
+                                            overview_features_mean=overview_features_mean,
+                                            overview_features_std=overview_features_std,
+                                            add_daytime_feature=add_daytime_feature,
+                                            add_yeartime_feature=add_yeartime_feature,
+                                            add_linear_timeindex=add_linear_timeindex,
+                                            with_labels=False,
+                                            train_val_split=1.0,
+                                            input_stride=input_stride,
+                                            padding=padding,
+                                            input_history_steps=input_history_steps,
+                                            input_future_steps=input_future_steps,
+                                            per_object_scaling=per_object_scaling,
+                                            custom_scaler=scaler,
+                                            unify_value_ranges=False,
+                                            input_dtype=np.float32,
+                                            sort_inputs=True,
+                                            seed=69)
+
+    
+    localizer = tf.keras.models.load_model(localizer_dir, compile=False)
+
+    preds_df = create_prediction_df(ds_gen=ds_gen,
+                                    model=localizer,
+                                    train=False,
+                                    test=True,
+                                    output_dirs=output_dirs,
+                                    prediction_batches=5,
+                                    verbose=2)
+
+    subm_df = postprocess_predictions(preds_df=preds_df,
+                                                dirs=output_dirs,
+                                                threshold=threshold,
+                                                add_initial_node=False, # Do not add initial nodes just yet
+                                                clean_consecutives=True,
+                                                legacy=legacy_clean_consecutives,
+                                                clean_neighbors_below_distance=clean_neighbors_below_distance)
+    
+    return subm_df
 
 def remove_ns_during_ew_nk(sub_df):
     """Remove predictions from the df during which EW nodes show a NK mode"""
@@ -333,7 +406,6 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
     else:
         return evaluator, subm_df, total_df
     
-
 def perform_evaluation_pipeline(ds_gen,
                                 model,
                                 ds_type,
