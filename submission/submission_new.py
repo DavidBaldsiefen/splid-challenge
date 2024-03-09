@@ -61,7 +61,8 @@ adik_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADI
                                                     sin_transform_features=['Argument of Periapsis (deg)',
                                                                             'Longitude (deg)',
                                                                             'True Anomaly (deg)',
-                                                                            'Latitude (deg)'],
+                                                                            #'Latitude (deg)'
+                                                                            ],
                                                     sin_cos_transform_features=[],
                                                     overview_features_mean=[],
                                                     overview_features_std=[],
