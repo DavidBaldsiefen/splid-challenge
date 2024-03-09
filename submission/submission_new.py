@@ -156,10 +156,12 @@ df_locs = pd.concat([df_locs] + initial_node_dfs)
 
 # =================================CLASSIFICATION==========================================
 
-classifier_scaler = pickle.load(open(SCALER_CLASSIFIER_DIR, 'rb'))
-
-ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
-                                      non_transform_features=['Eccentricity',
+classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER_DIR,
+                                                    scaler_dir=SCALER_CLASSIFIER_DIR,
+                                                    split_dataframes=split_dataframes,
+                                                    loc_preds=df_locs,
+                                                    output_dirs=['EW', 'NS'],
+                                                    non_transform_features=['Eccentricity',
                                                               'Semimajor Axis (m)',
                                                               #'Inclination (deg)',
                                                               'RAAN (deg)',
@@ -168,76 +170,49 @@ ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
                                                               #'Latitude (deg)',
                                                               #'Longitude (deg)',
                                                               ],
-                                      diff_transform_features=['Eccentricity',
-                                                               'Semimajor Axis (m)',
-                                                               'Inclination (deg)',
-                                                               #'RAAN (deg)',
-                                                               #'Argument of Periapsis (deg)',
-                                                               'True Anomaly (deg)',
-                                                               #'Longitude (deg)',
-                                                               #'Latitude (deg)'
-                                                               ],
-                                      sin_transform_features=[ #'Inclination (deg)',
-                                                               #'RAAN (deg)',
-                                                               'Argument of Periapsis (deg)',
-                                                               #'True Anomaly (deg)',
-                                                               'Longitude (deg)',
-                                                               #'Latitude (deg)'
-                                                              ],
-                                      sin_cos_transform_features=[
-                                                               #'Inclination (deg)',
-                                                               #'RAAN (deg)',
-                                                               #'Argument of Periapsis (deg)',
-                                                               #'True Anomaly (deg)',
-                                                               #'Longitude (deg)',
-                                                               #'Latitude (deg)'
-                                                               ],
-                                      overview_features_mean=[#'Eccentricity',
-                                                              #'Semimajor Axis (m)',
-                                                              #'Inclination (deg)',
-                                                              #'RAAN (deg)',
-                                                              #'Argument of Periapsis (sin)',
-                                                              #'True Anomaly (deg)',
-                                                              #'Latitude (deg)',
-                                                              #'Longitude (sin)',
-                                                              ],
-                                      overview_features_std=[#'Latitude (deg)',
-                                                             #'Argument of Periapsis (sin)'
-                                                             ],
-                                      add_daytime_feature=False,
-                                      add_yeartime_feature=False,
-                                      add_linear_timeindex=True,
-                                      with_labels=False,
-                                      train_val_split=1.0,
-                                      input_stride=1,
-                                      padding='zero',
-                                      input_history_steps=16,
-                                      input_future_steps=128,
-                                      custom_scaler=classifier_scaler,
-                                      unify_value_ranges=True,
-                                      input_dtype=np.float32,
-                                      sort_inputs=True,
-                                      seed=69)
-print(f"Classifying using model \"{CLASSIFIER_DIR}\"")
-classifier_model = tf.keras.models.load_model(CLASSIFIER_DIR, compile=False)
-
-pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
-                                model=classifier_model,
-                                train=False,
-                                test=True,
-                                only_nodes=False,
-                                model_outputs=['EW_Type', 'NS_Type'],
-                                object_limit=None,
-                                prediction_batches=5,
-                                verbose=2)
-
-#majority_df = classifier.apply_majority_method(preds_df=pred_df, location_df=df_locs)
-#majority_df = classifier.apply_one_shot_method(preds_df=pred_df, location_df=df_locs)
-print(df_locs.head(10))
-typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, df_locs, dirs=['EW', 'NS'])
-print(typed_df.head(10))
-classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=['EW', 'NS'])
-print(classified_df.head(10))
+                                                    diff_transform_features=['Eccentricity',
+                                                                            'Semimajor Axis (m)',
+                                                                            'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            #'Argument of Periapsis (deg)',
+                                                                            'True Anomaly (deg)',
+                                                                            #'Longitude (deg)',
+                                                                            #'Latitude (deg)'
+                                                                            ],
+                                                    sin_transform_features=[ #'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            'Argument of Periapsis (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
+                                                                            #'Latitude (deg)'
+                                                                            ],
+                                                    sin_cos_transform_features=[
+                                                                            #'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            #'Argument of Periapsis (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            #'Longitude (deg)',
+                                                                            #'Latitude (deg)'
+                                                                            ],
+                                                    overview_features_mean=[#'Eccentricity',
+                                                                            #'Semimajor Axis (m)',
+                                                                            #'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            #'Argument of Periapsis (sin)',
+                                                                            #'True Anomaly (deg)',
+                                                                            #'Latitude (deg)',
+                                                                            #'Longitude (sin)',
+                                                                            ],
+                                                    overview_features_std=[#'Latitude (deg)',
+                                                                            #'Argument of Periapsis (sin)'
+                                                                            ],
+                                                    add_daytime_feature=False,
+                                                    add_yeartime_feature=False,
+                                                    add_linear_timeindex=True,
+                                                    input_history_steps=16,
+                                                    input_future_steps=128,
+                                                    input_stride=1,
+                                                    padding='zero')
 
 # =====================================================================================================
 

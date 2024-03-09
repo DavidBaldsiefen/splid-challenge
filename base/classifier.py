@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
+import pickle
+import tensorflow as tf
 import gc
+from base import datahandler
 
 # Helper lambdas
 def get_x_from_xy(x,y):
@@ -298,6 +301,70 @@ def apply_majority_method(preds_df, location_df):
     df = pd.concat(dfs)
     df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     return df
+
+def perform_submission_pipeline(classifier_dir,
+                                scaler_dir,
+                                split_dataframes,
+                                loc_preds,
+                                output_dirs,
+                                non_transform_features=[],
+                                diff_transform_features=[],
+                                sin_transform_features=[],
+                                sin_cos_transform_features=[],
+                                overview_features_mean=[],
+                                overview_features_std=[],
+                                add_daytime_feature=False,
+                                add_yeartime_feature=False,
+                                add_linear_timeindex=False,
+                                padding='zero',
+                                input_history_steps=128,
+                                input_future_steps=128,
+                                input_stride=2,
+                                per_object_scaling=False,
+                                ):
+    """Perform the entire submission pipeline, i.e. create ds_gen, run classifier, perform postprocessing"""
+    print(f"Classifying locations using model \"{classifier_dir}\" and scaler \"{scaler_dir}\"")
+
+    scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
+    ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+                                            non_transform_features=non_transform_features,
+                                            diff_transform_features=diff_transform_features,
+                                            sin_transform_features=sin_transform_features,
+                                            sin_cos_transform_features=sin_cos_transform_features,
+                                            overview_features_mean=overview_features_mean,
+                                            overview_features_std=overview_features_std,
+                                            add_daytime_feature=add_daytime_feature,
+                                            add_yeartime_feature=add_yeartime_feature,
+                                            add_linear_timeindex=add_linear_timeindex,
+                                            with_labels=False,
+                                            train_val_split=1.0,
+                                            input_stride=input_stride,
+                                            padding=padding,
+                                            input_history_steps=input_history_steps,
+                                            input_future_steps=input_future_steps,
+                                            per_object_scaling=per_object_scaling,
+                                            custom_scaler=scaler,
+                                            unify_value_ranges=False,
+                                            input_dtype=np.float32,
+                                            sort_inputs=True,
+                                            seed=69)
+
+    
+    classifier_model = tf.keras.models.load_model(classifier_dir, compile=False)
+
+    pred_df = create_prediction_df(ds_gen=ds_gen,
+                                model=classifier_model,
+                                train=False,
+                                test=True,
+                                only_nodes=False,
+                                model_outputs=[f'{dir}_Type' for dir in output_dirs],
+                                object_limit=None,
+                                prediction_batches=5,
+                                verbose=2)
+
+    typed_df = fill_unknown_types_based_on_preds(pred_df, loc_preds, dirs=output_dirs)
+    classified_df = fill_unknwon_nodes_based_on_type(typed_df, dirs=output_dirs)
+    return classified_df
 
 
 def apply_majority_method_legacy(preds_df, location_df):
