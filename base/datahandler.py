@@ -272,17 +272,19 @@ class DatasetGenerator():
 
         #perform scaling - fit the scaler on the train data, and then scale both datasets
         if scale:
+            scaler_features = list(dict.fromkeys(self._input_features)) # ensure that the same features at the same positions are scaled
+            scaler_features.sort()
             if verbose>1:
                 print("Scaling now.")
             if per_object_scaling:
                 for key in self._train_keys + self._val_keys:
-                    split_df[key][self._input_features] = StandardScaler().fit_transform(split_df[key][self._input_features].values)
+                    split_df[key][scaler_features] = StandardScaler().fit_transform(split_df[key][scaler_features].values)
             else:
                 concatenated_train_df = pd.concat([split_df[k] for k in self._train_keys], ignore_index=True)
-                scaler = StandardScaler().fit(concatenated_train_df[self._input_features].values) if custom_scaler is None else custom_scaler
+                scaler = StandardScaler().fit(concatenated_train_df[scaler_features].values) if custom_scaler is None else custom_scaler
                 self._scaler = scaler
                 for key in self._train_keys + self._val_keys:
-                    split_df[key][self._input_features] = scaler.transform(split_df[key][self._input_features].values)
+                    split_df[key][scaler_features] = scaler.transform(split_df[key][scaler_features].values)
 
         # pad the location labels, making them "wider"
         if pad_location_labels>0 and with_labels:
