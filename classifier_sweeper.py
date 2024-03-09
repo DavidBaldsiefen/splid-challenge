@@ -10,8 +10,6 @@ from base import datahandler, prediction_models, evaluation, utils, classifier
 
 
 
-dirs=['EW', 'NS']
-
 def parameter_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
@@ -19,10 +17,13 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        challenge_data_dir = Path('dataset/phase_1_v2/')
+        challenge_data_dir = Path('dataset/phase_1_v3/')
         data_dir = challenge_data_dir / "train"
         labels_dir = challenge_data_dir / 'train_labels.csv'
         split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+
+        dirs=config.training['directions']
+        print(f"Directions: {dirs}")
 
         # Create Dataset
         utils.set_random_seed(42)
@@ -45,12 +46,13 @@ def parameter_sweep(config=None):
             else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
             if value == True:
                 non_transform_features += [ft_name]
+
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
-            if value == 'non': non_transform_features += [ft_name]
-            elif value == 'diff': diff_transform_features += [ft_name]
+            if value == 'diff': diff_transform_features += [ft_name]
             elif value == 'sin': sin_transform_features += [ft_name]
             elif value == 'sin_cos': sin_cos_transform_features += [ft_name]
+            elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
         
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
@@ -70,7 +72,7 @@ def parameter_sweep(config=None):
                                                 input_stride=config.ds_gen['input_stride'],
                                                 padding='zero',
                                                 scale=True,
-                                                unify_value_ranges=True,
+                                                unify_value_ranges=False,
                                                 per_object_scaling=config.ds_gen['per_object_scaling'],
                                                 node_class_multipliers={'ID':1.0,
                                                                         'IK':1.0,
@@ -134,6 +136,7 @@ def parameter_sweep(config=None):
                          epochs=500,
                          plot_hist=False,
                          early_stopping=42,
+                         save_best_only=True,
                          target_metric='val_EW_Type_accuracy' if len(dirs) > 1 else 'val_accuracy',
                          #class_weight=class_weights, 
                          callbacks=[WandbMetricsLogger()],
@@ -148,6 +151,7 @@ def parameter_sweep(config=None):
             print(f"Saving scaler to \"{scaler_path}\"")
             pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
             wandb.save(scaler_path)
+            print(f"Scaler means & scale: {ds_gen.scaler.mean_} {ds_gen.scaler.scale_}")
 
         train_ds = None
         val_ds = None
@@ -198,8 +202,8 @@ def parameter_sweep(config=None):
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
-        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
         typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
         classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
         evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df)
@@ -228,24 +232,26 @@ sweep_configuration = {
     "metric": {"goal": "maximize", "name": "Precision"},
     #"run_cap":60,
     "parameters": {
-        "input_features" : {
+       "input_features" : {
             "parameters" : {
                 'Eccentricity' : {"values": [True]},
                 'Semimajor_Axis' : {"values": [True]},
                 'Inclination' : {"values": [True]},
-                'RAAN' : {"values": [False]},
-                'Argument_of_Periapsis' : {"values": [True]},
-                'True_Anomaly' : {"values": [True]},
+                'RAAN' : {"values": [True]},
+                'Argument_of_Periapsis' : {"values": [False]},
+                'True_Anomaly' : {"values": [False]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
             }
         },
         "feature_engineering" : {
             "parameters" : {
-                'RAAN' : {"values": ['sin']},
-                'Argument_of_Periapsis' : {"values": ['diff']},
-                'True_Anomaly' : {"values": ['diff']},
+                'Inclination' : {"values": ['non']},
+                'RAAN' : {"values": ['non']},
+                'Argument_of_Periapsis' : {"values": ['sin']},
+                'True_Anomaly' : {"values": ['sin']},
                 'Longitude' : {"values": ['sin']},
+                'Latitude' : {"values": ['non']},
             }
         },
         "ds_gen" : {
@@ -257,10 +263,11 @@ sweep_configuration = {
                                                    #['Latitude (deg)', 'Argument of Periapsis (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
-            "nodes_to_include_as_locations" : {"values": [['SS', 'AD', 'IK', 'ID']]},
+            "nodes_to_include_as_locations" : {"values": [#['SS', 'AD', 'IK', 'ID'],
+                                                          ['SS', 'AD', 'IK']]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [1, 200, 300, 400, 500, 600, 700, 800, 900, 1000]}, # if 1, keep only labels
-            "input_stride" : {"values": [2]},
+            "keep_label_stride" : {"values": [1]}, # if 1, keep only labels
+            "input_stride" : {"values": [1]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
@@ -272,7 +279,10 @@ sweep_configuration = {
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]]
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,14,4,1,1]],
+                                          [[64,9,1,2,1],[64,9,1,1,1],[48,9,3,1,1]],
+                                          [[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
@@ -288,6 +298,15 @@ sweep_configuration = {
             "mixed_dropout_lstm" : {"values": [0.0]},
             "lr_scheduler" : {"values": [[0.005]]},
             "seed" : {"values": [0]},
+            }
+        },
+        "training" : {
+            "parameters" : {
+            "batch_size" : {"values": [256]},
+            "directions" : {"values" : [['EW', 'NS'],
+                                        #['EW'],
+                                        ['NS']
+                                        ]}
             }
         },
         # "class_weights" : {
