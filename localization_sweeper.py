@@ -62,10 +62,10 @@ def parameter_sweep(config=None):
 
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
-            if value == 'non': non_transform_features += [ft_name]
-            elif value == 'diff': diff_transform_features += [ft_name]
+            if value == 'diff': diff_transform_features += [ft_name]
             elif value == 'sin': sin_transform_features += [ft_name]
             elif value == 'sin_cos': sin_cos_transform_features += [ft_name]
+            elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
 
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
@@ -154,7 +154,8 @@ def parameter_sweep(config=None):
                             val_ds=val_ds,
                             epochs=epochs,
                             early_stopping=0,
-                            target_metric='val_mse',
+                            target_metric='val_loss',
+                            save_best_only=True,
                             plot_hist=False,
                             callbacks=[WandbMetricsLogger(initial_global_step=global_wandb_step), ClearMemoryCallback()],
                             verbose=2)
@@ -200,6 +201,7 @@ def parameter_sweep(config=None):
             print(f"Saving scaler to \"{scaler_path}\"")
             pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
             wandb.save(scaler_path)
+            print(f"Scaler means & scale: {ds_gen.scaler.mean_} {ds_gen.scaler.scale_}")
 
         # ====================================Evaluation===================================================
 
@@ -243,8 +245,8 @@ sweep_configuration = {
                 'Eccentricity' : {"values": [True]},
                 'Semimajor_Axis' : {"values": [True]},
                 'Inclination' : {"values": [True]},
-                'RAAN' : {"values": [False]},
-                'Argument_of_Periapsis' : {"values": [True]},
+                'RAAN' : {"values": [True]},
+                'Argument_of_Periapsis' : {"values": [False]},
                 'True_Anomaly' : {"values": [False]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
@@ -252,6 +254,7 @@ sweep_configuration = {
         },
         "feature_engineering" : {
             "parameters" : {
+                'Inclination' : {"values": ['non']},
                 'RAAN' : {"values": ['non']},
                 'Argument_of_Periapsis' : {"values": ['sin']},
                 'True_Anomaly' : {"values": ['sin']},
@@ -267,23 +270,24 @@ sweep_configuration = {
             "nonbinary_padding" : {"values": [
                                               [110.0, 70.0, 49.0, 34.0, 24.0, 12.0]
                                               ]},
-            "input_stride" : {"values": [2]},
+            "input_stride" : {"values": [4]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [0.0]},
-            "class_multiplier_IK" : {"values": [1.0]},
-            "class_multiplier_AD" : {"values": [1.0]},
-            "input_history_steps" : {"values": [128]},
-            "input_future_steps" : {"values": [32]},
+            "class_multiplier_ID" : {"values": [1.0]},
+            "class_multiplier_IK" : {"values": [0.0]},
+            "class_multiplier_AD" : {"values": [0.0]},
+            "input_history_steps" : {"values": [256,320]},
+            "input_future_steps" : {"values": [256,320]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
-                                          #[[64,15,1,1,1],[64,15,1,1,1],[48,15,2,1,1]],
+                                          [[64,9,1,1,1],[64,9,1,1,1],[48,9,2,1,1]],
                                           [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,1,1,1]],
                                           #[[48,8,2]],
                                           #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
                                           #[[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
@@ -292,15 +296,15 @@ sweep_configuration = {
             "dense_layers" : {"values": [[64,32]]},
             "deep_layer_in_output" : {"values": [False]},
             "lstm_layers" : {"values": [[]]},
-            "l2_reg" : {"values": [0.00025]},
+            "l2_reg" : {"values": [0.0001]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [True]},
             "mixed_batchnorm_dense" : {"values": [True]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.05]},
+            "mixed_dropout_cnn" : {"values": [0.1]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.005]]},
+            "lr_scheduler" : {"values": [[0.0025]]},
             "seed" : {"values": [0]},
             }
         },
@@ -314,10 +318,13 @@ sweep_configuration = {
                                     [[5,0,True,25],[5,1,True,25],[5,2,True,25]],
                                     ]
                                 },
-            "nodes_to_consider" : {"values": [['AD', 'IK']]
+            "nodes_to_consider" : {"values": [['ID']]
                                 },
             "batch_size" : {"values": [2048]},
-            "directions" : {"values" : [['EW', 'NS']]}
+            "directions" : {"values" : [#['EW', 'NS'],
+                                        ['EW'],
+                                        #['NS']
+                                        ]}
             }
         },
     },
