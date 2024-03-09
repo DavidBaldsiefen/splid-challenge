@@ -23,7 +23,8 @@ SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localiz
 CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
-TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test/') #!!!
+TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test') #!!!
+DEBUG_LABELS_DIR = Path('submission/dataset/test_labels.csv')
 TEST_PREDS_FP = Path(('submission/' if DEBUG_MODE else '/') + 'submission/submission.csv')
 
 # Load Data
@@ -143,7 +144,7 @@ print(f"#NS_Preds: {len(df_locs.loc[(df_locs['Direction'] == 'NS')])}")
 initial_node_dfs = []
 for dir in ['NS', 'EW']:
     initial_node_df = pd.DataFrame(columns=df_locs.columns)
-    initial_node_df['ObjectID'] = list(map(int, ds_gen.train_keys))
+    initial_node_df['ObjectID'] = list(map(int, split_dataframes.keys()))
     initial_node_df['TimeIndex'] = 0
     initial_node_df['Direction'] = dir
     initial_node_df['Node'] = 'SS'
@@ -255,7 +256,7 @@ if not DEBUG_MODE:
 else:
     print("------------------------------------------------------")
     print("Evaluating...")
-    ground_truth_df = pd.read_csv(Path('submission/dataset/test_labels.csv'))
+    ground_truth_df = pd.read_csv(DEBUG_LABELS_DIR)
     results.to_csv('submission/submission/debug_submission.csv', index=False)
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
