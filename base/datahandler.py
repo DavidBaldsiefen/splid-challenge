@@ -3,6 +3,7 @@ import random
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from scipy.signal import butter, filtfilt
 from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime, timezone
@@ -121,6 +122,9 @@ class DatasetGenerator():
                  sin_transform_features=[],
                  sin_cos_transform_features=[],
                  diff_transform_features=[],
+                 highpass_features=[],
+                 highpass_order=20,
+                 highpass_cutoff=0.8,
                  overview_features_mean=[],
                  overview_features_std=[],
                  add_daytime_feature=False,
@@ -235,6 +239,22 @@ class DatasetGenerator():
                         diff_vals[diff_vals > wraparound_offset[0]] -= 360
                         diff_vals[diff_vals < wraparound_offset[1]] += 360
                     split_df[key][newft] = np.diff(split_df[key][ft], prepend=split_df[key][ft][0])
+                self._input_features.append(newft)
+
+        # apply highpass filter. If the data is given in (deg), a sinus transform is applied beforehand
+        if highpass_features:
+            if verbose>0:
+                print(f"Applying highpass filter of order {highpass_order} at cutoff frequency {highpass_cutoff} (1hz=24h) to features {highpass_features}")
+
+            def butter_lowpass_filter(data, cutoff, fs, order):
+                b, a = butter(order, cutoff, fs=fs, btype='lowpass', analog=False)
+                y = filtfilt(b, a, data, method='pad')
+                return y
+            
+            for ft in highpass_features:
+                newft = ft + '(highpass)'
+                for key in self._train_keys + self._val_keys:
+                    split_df[key][newft] = butter_lowpass_filter(np.sin(np.deg2rad(split_df[key][ft])) if 'deg' in ft else split_df[key][ft], cutoff=highpass_cutoff, fs=12.0, order=highpass_order)
                 self._input_features.append(newft)
 
         if add_daytime_feature:
