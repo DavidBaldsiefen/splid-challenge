@@ -9,7 +9,7 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
@@ -38,7 +38,7 @@ adik_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADI
                                                     scaler_dir=SCALER_ADIK_DIR,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    threshold=55.0,
+                                                    thresholds=[45.0, 60.0],
                                                     legacy_clean_consecutives=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
@@ -81,7 +81,7 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                     scaler_dir=SCALER_ID_DIR,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    threshold=35.0,
+                                                    thresholds=[35.0, 35.0],
                                                     legacy_clean_consecutives=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',

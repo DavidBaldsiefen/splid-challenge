@@ -158,7 +158,7 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
 
 def postprocess_predictions(preds_df,
                             dirs=['EW', 'NS'],
-                            threshold=50.0,
+                            thresholds=[50.0], # if len2, gets interpreted as per-direction threshold
                             add_initial_node=False,
                             clean_consecutives=True,
                             clean_neighbors_below_distance=-1,
@@ -171,26 +171,30 @@ def postprocess_predictions(preds_df,
     object_ids = df['ObjectID'].unique()
     df['Any_Loc'] = False
     # apply threshold
-    for dir in dirs:
-        df[f'{dir}_Loc'] = df[f'{dir}_Loc'] >= threshold
+    for dir_idx, dir in enumerate(dirs):
+        dir_threshold = thresholds[0] if len(thresholds)==1 else thresholds[dir_idx]
+        df[f'{dir}_Loc'] = df[f'{dir}_Loc'] >= dir_threshold
         df['Any_Loc'] = df['Any_Loc'] | df[f'{dir}_Loc']
-
+    
     # remove consecutive location predictions, and replace them only with their center
-    # TODO: this fails when two consecutive objects have detections at exactly consecutive timeindices - a corner case I ignore for now ;)
     if clean_consecutives and not legacy:
         dir_dfs = []
         for dir in dirs:
-            dir_df = df.loc[df[f'{dir}_Loc'] == True].copy()
+            dir_df = df.loc[df[f'{dir}_Loc'] == True].copy().sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+            # the other direction needs to be set to false for this dir. this avoids duplicates later on
+            other_dir = 'EW' if dir=='NS' else 'NS'
+            dir_df[f"{other_dir}_Loc"] = False
+            # find consecutives
             dir_df['consecutive'] = (dir_df['TimeIndex'] - dir_df['TimeIndex'].shift(1) != 1).cumsum()
             # Filter rows where any number of consecutive values follow each other
             dir_df=dir_df.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
             dir_dfs.append(dir_df)
-        df = pd.concat(dir_dfs)
+        df = pd.concat(dir_dfs) if len(dir_dfs) > 1 else dir_dfs[0]
     # remove duplicates - if there are two detections at the same place (one for each dir), they will still be maintained
     df = df.loc[df.duplicated(keep='first')==False].reset_index(drop=True)
 
     if clean_consecutives and legacy:    # Legacy method
-        df = df.loc[(df['Any_Loc'] == True)]
+        df = df.loc[(df['Any_Loc'] == True)].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
         # Filter rows where any number of consecutive values follow each other
         df=df.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
@@ -200,7 +204,7 @@ def postprocess_predictions(preds_df,
         dir_dfs = []
         for dir in dirs:
             # compute diffs between current and previous timeindex
-            sub_df = df.loc[df[f'{dir}_Loc'] == True].copy().reset_index(drop=True)
+            sub_df = df.loc[df[f'{dir}_Loc'] == True].copy().sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
             sub_df['diff'] = 3000
             sub_df.loc[(df['TimeIndex'] > 0), 'diff'] = sub_df.loc[(df['TimeIndex'] > 0), 'TimeIndex'].diff()
             sub_df.loc[sub_df['diff']<0, 'diff'] = 3000
@@ -233,7 +237,7 @@ def postprocess_predictions(preds_df,
         sub_df = df.loc[df[f'{dir}_Loc'] == True].copy()
         sub_df['Direction'] = dir
         sub_dfs.append(sub_df)
-    df = pd.concat(sub_dfs)
+    df = pd.concat(sub_dfs) if len(sub_dfs)>1 else sub_dfs[0]
 
     df['Node'] = 'UNKNOWN'
     df['Type'] = 'UNKNOWN'
@@ -246,7 +250,7 @@ def perform_submission_pipeline(localizer_dir,
                                 scaler_dir,
                                 split_dataframes,
                                 output_dirs,
-                                threshold,
+                                thresholds,
                                 legacy_clean_consecutives=False,
                                 clean_neighbors_below_distance=-1,
                                 non_transform_features=[],
@@ -287,7 +291,7 @@ def perform_submission_pipeline(localizer_dir,
                                             input_future_steps=input_future_steps,
                                             per_object_scaling=per_object_scaling,
                                             custom_scaler=scaler,
-                                            unify_value_ranges=True,
+                                            unify_value_ranges=False,
                                             input_dtype=np.float32,
                                             sort_inputs=True,
                                             seed=69)
@@ -305,7 +309,7 @@ def perform_submission_pipeline(localizer_dir,
 
     subm_df = postprocess_predictions(preds_df=preds_df,
                                                 dirs=output_dirs,
-                                                threshold=threshold,
+                                                thresholds=thresholds,
                                                 add_initial_node=False, # Do not add initial nodes just yet
                                                 clean_consecutives=True,
                                                 legacy=legacy_clean_consecutives,
@@ -435,15 +439,35 @@ def perform_evaluation_pipeline(ds_gen,
                                 verbose=verbose)
     
     all_scores = []
+    best_scores_per_dir = [-1.0, -1.0]
+    best_thresholds_per_dir = [-1.0, -1.0]
+    # perform threshold analysis
     for threshold in thresholds:
-        subm_df = postprocess_predictions(preds_df=preds_df,
-                                        dirs=output_dirs,
-                                        threshold=threshold,
-                                        add_initial_node=True,
-                                        clean_consecutives=True,
-                                        legacy=legacy_postprocessing,
-                                        clean_neighbors_below_distance=clean_neighbors_below_distance,
-                                        deepcopy=False)
+        subm_dfs = []
+        for dir_idx, dir in enumerate(output_dirs):
+            subm_df = postprocess_predictions(preds_df=preds_df,
+                                            dirs=[dir],
+                                            thresholds=[threshold],
+                                            add_initial_node=with_initial_node,
+                                            clean_consecutives=True,
+                                            legacy=legacy_postprocessing,
+                                            clean_neighbors_below_distance=clean_neighbors_below_distance,
+                                            deepcopy=False)
+            subm_dfs.append(subm_df)
+
+            dir_score = evaluate_localizer(subm_df=subm_df,
+                                    gt_path=gt_path,
+                                    object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
+                                    dirs=[dir],
+                                    with_initial_node=with_initial_node,
+                                    nodes_to_consider=nodes_to_consider, 
+                                    return_scores=True,
+                                    verbose=0)
+            if best_scores_per_dir[dir_idx] < dir_score['F2']:
+                best_scores_per_dir[dir_idx] = dir_score['F2']
+                best_thresholds_per_dir[dir_idx] = threshold
+       
+        subm_df = pd.concat(subm_dfs).sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
 
         scores = evaluate_localizer(subm_df=subm_df,
                                     gt_path=gt_path,
@@ -456,4 +480,29 @@ def perform_evaluation_pipeline(ds_gen,
         scores['Threshold'] = threshold
         all_scores.append(scores)
         print(f"Threshold: {scores['Threshold']:.1f}\t Precision: {scores['Precision']:.2f} Recall: {scores['Recall']:.2f} F2: {scores['F2']:.3f} RMSE: {scores['RMSE']:.2f} | TP: {scores['TP']} FP: {scores['FP']} FN: {scores['FN']} (ID: {scores['TP_ID']}|{scores['FN_ID']} IK: {scores['TP_IK']}|{scores['FN_IK']} AD: {scores['TP_AD']}|{scores['FN_AD']})")
+    
+    if(len(output_dirs)>1):
+        subm_df = postprocess_predictions(preds_df=preds_df,
+                                            dirs=output_dirs,
+                                            thresholds=best_thresholds_per_dir,
+                                            add_initial_node=with_initial_node,
+                                            clean_consecutives=True,
+                                            legacy=legacy_postprocessing,
+                                            clean_neighbors_below_distance=clean_neighbors_below_distance,
+                                            deepcopy=False)
+        subm_df = subm_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+        scores = evaluate_localizer(subm_df=subm_df,
+                                gt_path=gt_path,
+                                object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
+                                dirs=output_dirs,
+                                with_initial_node=with_initial_node,
+                                nodes_to_consider=nodes_to_consider, 
+                                return_scores=True,
+                                verbose=0)
+        scores['Threshold'] = best_thresholds_per_dir[0]+best_thresholds_per_dir[1]/100.0 # just to ease current workflow
+        scores['Thresholds'] = best_thresholds_per_dir
+        scores['Per-Dir-Thresholds'] = True
+        all_scores.append(scores)
+        print(f"Per-Dir-Thresholds: {scores['Thresholds'][0]:.1f}-{scores['Thresholds'][1]:.1f}\t Precision: {scores['Precision']:.2f} Recall: {scores['Recall']:.2f} F2: {scores['F2']:.3f} RMSE: {scores['RMSE']:.2f} | TP: {scores['TP']} FP: {scores['FP']} FN: {scores['FN']} (ID: {scores['TP_ID']}|{scores['FN_ID']} IK: {scores['TP_IK']}|{scores['FN_IK']} AD: {scores['TP_AD']}|{scores['FN_AD']})")
+
     return all_scores
