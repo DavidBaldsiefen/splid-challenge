@@ -14,8 +14,10 @@ if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_ADIK_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ADIK_localizer_cnn.hdf5')
-SCALER_ADIK_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ADIK_localizer_scaler_cnn.pkl')
+LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_b0e1stj3.hdf5')
+SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_b0e1stj3.pkl')
+LOCALIZER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_ipci6ghk.hdf5')
+SCALER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_ipci6ghk.pkl')
 
 LOCALIZER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localizer_cnn.hdf5')
 SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localizer_scaler_cnn.pkl')
@@ -34,19 +36,19 @@ print(f"Loaded {len(split_dataframes.keys())} dataset files from \"{TEST_DATA_DI
 # =================================LOCALIZATION==========================================
 #-----------------------------------AD+IK-------------------------------
 
-adik_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADIK_DIR,
-                                                    scaler_dir=SCALER_ADIK_DIR,
+adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADIK_DIR_EW,
+                                                    scaler_dir=SCALER_ADIK_DIR_EW,
                                                     split_dataframes=split_dataframes,
-                                                    output_dirs=['EW', 'NS'],
-                                                    thresholds=[45.0, 60.0],
+                                                    output_dirs=['EW'],
+                                                    thresholds=[60.0],
                                                     legacy_clean_consecutives=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
                                                                             'Inclination (deg)',
                                                                             'RAAN (deg)',
-                                                                            #'Argument of Periapsis (deg)',
-                                                                            #'True Anomaly (deg)',
+                                                                            'Argument of Periapsis (deg)',
+                                                                            'True Anomaly (deg)',
                                                                             #'Longitude (deg)',
                                                                             'Latitude (deg)'],
                                                     diff_transform_features=[#'Eccentricity',
@@ -74,6 +76,52 @@ adik_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADI
                                                     input_stride=2,
                                                     padding='zero')
 
+adik_subm_df_ns = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADIK_DIR_NS,
+                                                    scaler_dir=SCALER_ADIK_DIR_NS,
+                                                    split_dataframes=split_dataframes,
+                                                    output_dirs=['NS'],
+                                                    thresholds=[55.0],
+                                                    legacy_clean_consecutives=False,
+                                                    clean_neighbors_below_distance=-1,
+                                                    non_transform_features=['Eccentricity',
+                                                                            'Semimajor Axis (m)',
+                                                                            'Inclination (deg)',
+                                                                            'RAAN (deg)',
+                                                                            'Argument of Periapsis (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
+                                                                            'Latitude (deg)'],
+                                                    diff_transform_features=[#'Eccentricity',
+                                                                            #'Semimajor Axis (m)',
+                                                                            #'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            #'Argument of Periapsis (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            #'Longitude (deg)',
+                                                                            #'Latitude (deg)'
+                                                                            ],
+                                                    sin_transform_features=[#'Eccentricity',
+                                                                            #'Semimajor Axis (m)',
+                                                                            #'Inclination (deg)',
+                                                                            'RAAN (deg)',
+                                                                            #'Argument of Periapsis (deg)',
+                                                                            'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
+                                                                            #'Latitude (deg)'
+                                                                            ],
+                                                    sin_cos_transform_features=[],
+                                                    overview_features_mean=[],
+                                                    overview_features_std=[],
+                                                    add_daytime_feature=False,
+                                                    add_yeartime_feature=False,
+                                                    add_linear_timeindex=False,
+                                                    input_history_steps=256,
+                                                    input_future_steps=32,
+                                                    input_stride=3,
+                                                    padding='zero')
+
+adik_subm_df = pd.concat([adik_subm_df_ns, adik_subm_df_ew])
+
 gc.collect()
 #-----------------------------------ID-------------------------------
 
@@ -81,7 +129,7 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                     scaler_dir=SCALER_ID_DIR,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    thresholds=[35.0, 35.0],
+                                                    thresholds=[35.0],
                                                     legacy_clean_consecutives=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
@@ -120,7 +168,6 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                     input_future_steps=256,
                                                     input_stride=4,
                                                     padding='zero')
-
 # For ID, we know the node and type already. In theory there could be FPs where other nodes are, but for duplicates, the nodes&types are reset again
 id_subm_df['Node'] = 'ID'
 id_subm_df['Type'] = 'NK'
@@ -210,7 +257,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     add_yeartime_feature=False,
                                                     add_linear_timeindex=True,
                                                     input_history_steps=16,
-                                                    input_future_steps=128,
+                                                    input_future_steps=160,
                                                     input_stride=1,
                                                     padding='zero')
 

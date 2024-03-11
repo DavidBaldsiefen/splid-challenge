@@ -84,10 +84,6 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
         all_identifiers.append(identifiers)
         all_predictions.append(preds)
 
-        del ds
-        del datasets
-    gc.collect()
-
     all_identifiers = np.concatenate(all_identifiers)
     all_predictions = np.concatenate(all_predictions, axis=0 if len(model_outputs)==1 else 1)
 
@@ -110,6 +106,10 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
     if confusion_matrix:
         # TODO: make this work for batched ds!
         plot_confusion_matrix(ds_gen, ds, model, output_names=model_outputs)
+
+    del ds
+    del datasets
+    gc.collect()
 
     return df
 
