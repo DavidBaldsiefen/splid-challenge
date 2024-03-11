@@ -42,6 +42,7 @@ def parameter_sweep(config=None):
         utils.set_random_seed(42)
 
         non_transform_features =[]
+        highpass_features = []
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
@@ -60,6 +61,23 @@ def parameter_sweep(config=None):
             if value == True:
                 non_transform_features += [ft_name]
 
+        for key, value in config.highpass_features.items():
+            ft_name = key
+            if key == 'Eccentricity': ft_name = 'Eccentricity'
+            elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
+            elif key == 'Inclination': ft_name = 'Inclination (deg)'
+            elif key == 'RAAN': ft_name = 'RAAN (deg)'
+            elif key == 'Argument_of_Periapsis': ft_name = 'Argument of Periapsis (deg)'
+            elif key == 'True_Anomaly': ft_name = 'True Anomaly (deg)'
+            elif key == 'Longitude': ft_name = 'Longitude (deg)'
+            elif key == 'Latitude': ft_name = 'Latitude (deg)'
+            else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
+            if value == True:
+                print(f"Replacing normal ft with highpass: {ft_name}")
+                highpass_features += [ft_name]
+                if ft_name in non_transform_features:
+                    non_transform_features.remove(ft_name)
+
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
             if value == 'diff': diff_transform_features += [ft_name]
@@ -73,6 +91,8 @@ def parameter_sweep(config=None):
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
+                                                highpass_features=highpass_features,
+                                                highpass_order=15,
                                                 overview_features_mean=config.ds_gen['overview_features_mean'],
                                                 overview_features_std=config.ds_gen['overview_features_std'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
@@ -172,7 +192,7 @@ def parameter_sweep(config=None):
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         output_dirs=directions,
                                         prediction_batches=5,
-                                        thresholds = np.linspace(30.0, 85.0, 12),
+                                        thresholds = np.linspace(25.0, 85.0, 13),
                                         object_limit=None,
                                         with_initial_node=False,
                                         nodes_to_consider=config.training['nodes_to_consider'],
@@ -246,10 +266,22 @@ sweep_configuration = {
                 'Semimajor_Axis' : {"values": [True]},
                 'Inclination' : {"values": [True]},
                 'RAAN' : {"values": [True]},
-                'Argument_of_Periapsis' : {"values": [False]},
+                'Argument_of_Periapsis' : {"values": [True]},
                 'True_Anomaly' : {"values": [False]},
-                'Longitude' : {"values": [False]},
+                'Longitude' : {"values": [True]},
                 'Latitude' : {"values": [True]},
+            }
+        },
+        "highpass_features" : {
+            "parameters" : {
+                'Eccentricity' : {"values": [False]},
+                'Semimajor_Axis' : {"values": [False, True]},
+                'Inclination' : {"values": [False]},
+                'RAAN' : {"values": [False]},
+                'Argument_of_Periapsis' : {"values": [False]},
+                'True_Anomaly' : {"values": [False, True]},
+                'Longitude' : {"values": [False]},
+                'Latitude' : {"values": [False]},
             }
         },
         "feature_engineering" : {
@@ -270,24 +302,25 @@ sweep_configuration = {
             "nonbinary_padding" : {"values": [
                                               [110.0, 70.0, 49.0, 34.0, 24.0, 12.0]
                                               ]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [3]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [False]},
-            "class_multiplier_ID" : {"values": [1.0]},
-            "class_multiplier_IK" : {"values": [0.0]},
-            "class_multiplier_AD" : {"values": [0.0]},
-            "input_history_steps" : {"values": [256,320]},
-            "input_future_steps" : {"values": [256,320]},
+            "class_multiplier_ID" : {"values": [0.0]},
+            "class_multiplier_IK" : {"values": [1.0]},
+            "class_multiplier_AD" : {"values": [1.0]},
+            "input_history_steps" : {"values": [256,382]},
+            "input_future_steps" : {"values": [32]},
             }
         },
         "model" : {
             "parameters" : {
             "conv1d_layers" : {"values": [#[]
+                                          [[64,11,1,1,1],[64,11,1,1,1],[48,11,2,1,1]],
                                           [[64,9,1,1,1],[64,9,1,1,1],[48,9,2,1,1]],
-                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
-                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,1,1,1]],
+                                          #[[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
+                                          #[[64,7,1,1,1],[64,7,1,1,1],[48,7,1,1,1]],
                                           #[[48,8,2]],
                                           #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
                                           #[[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
@@ -296,15 +329,15 @@ sweep_configuration = {
             "dense_layers" : {"values": [[64,32]]},
             "deep_layer_in_output" : {"values": [False]},
             "lstm_layers" : {"values": [[]]},
-            "l2_reg" : {"values": [0.0001]},
+            "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [True]},
             "mixed_batchnorm_dense" : {"values": [True]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
-            "mixed_dropout_cnn" : {"values": [0.1]},
+            "mixed_dropout_cnn" : {"values": [0.05]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.0025]]},
+            "lr_scheduler" : {"values": [[0.004]]},
             "seed" : {"values": [0]},
             }
         },
@@ -315,15 +348,15 @@ sweep_configuration = {
                                     #[[8,0,True,20],[8,1,True,20],[8,2,True,20]],
                                     #[[7,0,True,20],[7,1,True,20],[7,2,True,20]],
                                     #[[6,0,True,20],[6,1,True,20],[6,2,True,20]],
-                                    [[5,0,True,25],[5,1,True,25],[5,2,True,25]],
+                                    [[5,0,True,28],[5,1,True,28],[5,2,True,28]],
                                     ]
                                 },
-            "nodes_to_consider" : {"values": [['ID']]
+            "nodes_to_consider" : {"values": [['AD', 'IK']]
                                 },
             "batch_size" : {"values": [2048]},
             "directions" : {"values" : [#['EW', 'NS'],
-                                        ['EW'],
-                                        #['NS']
+                                        #['EW'],
+                                        ['NS']
                                         ]}
             }
         },

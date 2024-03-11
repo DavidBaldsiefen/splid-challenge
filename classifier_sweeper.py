@@ -29,6 +29,7 @@ def parameter_sweep(config=None):
         utils.set_random_seed(42)
 
         non_transform_features =[]
+        highpass_features = []
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
@@ -47,6 +48,23 @@ def parameter_sweep(config=None):
             if value == True:
                 non_transform_features += [ft_name]
 
+        for key, value in config.highpass_features.items():
+            ft_name = key
+            if key == 'Eccentricity': ft_name = 'Eccentricity'
+            elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
+            elif key == 'Inclination': ft_name = 'Inclination (deg)'
+            elif key == 'RAAN': ft_name = 'RAAN (deg)'
+            elif key == 'Argument_of_Periapsis': ft_name = 'Argument of Periapsis (deg)'
+            elif key == 'True_Anomaly': ft_name = 'True Anomaly (deg)'
+            elif key == 'Longitude': ft_name = 'Longitude (deg)'
+            elif key == 'Latitude': ft_name = 'Latitude (deg)'
+            else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
+            if value == True:
+                print(f"Replacing normal ft with highpass: {ft_name}")
+                highpass_features += [ft_name]
+                if ft_name in non_transform_features:
+                    non_transform_features.remove(ft_name)
+
         for key, value in config.feature_engineering.items():
             ft_name = key.replace('_', ' ') + ' (deg)'
             if value == 'diff': diff_transform_features += [ft_name]
@@ -60,6 +78,7 @@ def parameter_sweep(config=None):
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
+                                                highpass_features=highpass_features,
                                                 overview_features_mean=config.ds_gen['overview_features_mean'],
                                                 overview_features_std=config.ds_gen['overview_features_std'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
@@ -237,20 +256,32 @@ sweep_configuration = {
                 'Eccentricity' : {"values": [True]},
                 'Semimajor_Axis' : {"values": [True]},
                 'Inclination' : {"values": [True]},
-                'RAAN' : {"values": [True]},
+                'RAAN' : {"values": [False]},
                 'Argument_of_Periapsis' : {"values": [False]},
                 'True_Anomaly' : {"values": [False]},
-                'Longitude' : {"values": [False]},
+                'Longitude' : {"values": [True]},
                 'Latitude' : {"values": [True]},
+            }
+        },
+        "highpass_features" : {
+            "parameters" : {
+                'Eccentricity' : {"values": [True, False]},
+                'Semimajor_Axis' : {"values": [False, True]},
+                'Inclination' : {"values": [False]},
+                'RAAN' : {"values": [False, True]},
+                'Argument_of_Periapsis' : {"values": [False, True]},
+                'True_Anomaly' : {"values": [False, True]},
+                'Longitude' : {"values": [False]},
+                'Latitude' : {"values": [False]},
             }
         },
         "feature_engineering" : {
             "parameters" : {
                 'Inclination' : {"values": ['non']},
-                'RAAN' : {"values": ['non']},
-                'Argument_of_Periapsis' : {"values": ['sin']},
-                'True_Anomaly' : {"values": ['sin']},
-                'Longitude' : {"values": ['sin']},
+                'RAAN' : {"values": ['sin']},
+                'Argument_of_Periapsis' : {"values": ['diff']},
+                'True_Anomaly' : {"values": ['diff']},
+                'Longitude' : {"values": ['non']},
                 'Latitude' : {"values": ['non']},
             }
         },
@@ -263,8 +294,9 @@ sweep_configuration = {
                                                    #['Latitude (deg)', 'Argument of Periapsis (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
-            "nodes_to_include_as_locations" : {"values": [#['SS', 'AD', 'IK', 'ID'],
-                                                          ['SS', 'AD', 'IK']]},
+            "nodes_to_include_as_locations" : {"values": [['SS', 'AD', 'IK', 'ID'],
+                                                          #['SS', 'AD', 'IK']
+                                                          ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [1]}, # if 1, keep only labels
             "input_stride" : {"values": [1]},
@@ -282,7 +314,7 @@ sweep_configuration = {
                                           [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
                                           [[64,7,1,1,1],[64,7,1,1,1],[48,14,4,1,1]],
                                           [[64,9,1,2,1],[64,9,1,1,1],[48,9,3,1,1]],
-                                          [[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
+                                          #[[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
             "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
@@ -296,15 +328,15 @@ sweep_configuration = {
             "mixed_dropout_dense" : {"values": [0.05]},
             "mixed_dropout_cnn" : {"values": [0.05]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.005]]},
+            "lr_scheduler" : {"values": [[0.0025]]},
             "seed" : {"values": [0]},
             }
         },
         "training" : {
             "parameters" : {
-            "batch_size" : {"values": [256]},
-            "directions" : {"values" : [['EW', 'NS'],
-                                        #['EW'],
+            "batch_size" : {"values": [128]},
+            "directions" : {"values" : [#['EW', 'NS'],
+                                        ['EW'],
                                         ['NS']
                                         ]}
             }
