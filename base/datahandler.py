@@ -330,6 +330,7 @@ class DatasetGenerator():
                 for dir in ['EW', 'NS']:
                     sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
                     # Remove nodes which should *not* be included
+                    # TODO: using the timeindex insetad of actual index here is working, but not clean at all! Only works because both are coincidentally equal...
                     sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location_nb'] = 0.0
                     timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1) & (sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)), 'TimeIndex'].to_numpy() # only considers SS if it is in nodes_to_include_as_locations
                     for timeindex in timeindices:
@@ -338,7 +339,6 @@ class DatasetGenerator():
                         if node_class_multipliers:
                             scaling_factor = node_class_multipliers[node]
                         sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended, dtype=np.float32)*scaling_factor
-
         # encode labels
         if verbose>1:
             print("Fitting Labelencoders now.")

@@ -22,7 +22,7 @@ SCALER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/scale
 LOCALIZER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localizer_cnn.hdf5')
 SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localizer_scaler_cnn.pkl')
 
-CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_oneshot_cnn.hdf5')
+CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_wgosumdo.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ew_ns_classifier_scaler_oneshot_cnn.pkl')
 
 TEST_DATA_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'dataset/test') #!!!
@@ -207,6 +207,8 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     scaler_dir=SCALER_CLASSIFIER_DIR,
                                                     split_dataframes=split_dataframes,
                                                     loc_preds=df_locs,
+                                                    remove_ns_during_ew_nk=True,
+                                                    remove_consecutive_ID_IK=True,
                                                     output_dirs=['EW', 'NS'],
                                                     non_transform_features=['Eccentricity',
                                                               'Semimajor Axis (m)',

@@ -317,22 +317,6 @@ def perform_submission_pipeline(localizer_dir,
     
     return subm_df
 
-def remove_ns_during_ew_nk(sub_df):
-    """Remove predictions from the df during which EW nodes show a NK mode"""
-
-    sub_df['EW_Type'] = sub_df['Type']
-    sub_df['EW_Loc'] = 0
-    sub_df['NS_Loc'] = 0
-    sub_df.loc[sub_df['Direction'] == 'EW', 'EW_Loc'] = 1
-    sub_df.loc[sub_df['Direction'] == 'NS', 'NS_Loc'] = 1
-    sub_df.loc[sub_df['Direction'] == 'NS', 'EW_Type'] = np.nan
-    sub_df.ffill(inplace=True)
-    sub_df = sub_df.loc[(sub_df['Direction'] == 'EW') | 
-                        ((sub_df['Direction'] == 'NS') & (sub_df['Node'] == 'SS')) |
-                        ((sub_df['Direction'] == 'NS') & (sub_df['EW_Type'] != 'NK'))]
-
-    return sub_df
-
 def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, nodes_to_consider=['ID', 'IK', 'AD'], verbose=1):
     from base import evaluation
     # Load gt

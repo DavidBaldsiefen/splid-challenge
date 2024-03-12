@@ -302,11 +302,71 @@ def apply_majority_method(preds_df, location_df):
     df = df[['ObjectID', 'TimeIndex', 'Direction', 'Node', 'Type']].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
     return df
 
+def remove_ns_during_ew_nk_method(submission_df):
+    """Remove predictions from the df during which EW nodes show a NK mode"""
+    filtered_df = submission_df.copy()
+    # Apply function to dataframe
+    filtered_df['EW_Type'] = filtered_df['Type']
+    filtered_df['EW_Node'] = filtered_df['Node']
+    filtered_df['EW_Loc'] = 0
+    filtered_df['NS_Loc'] = 0
+    filtered_df.loc[filtered_df['Direction'] == 'EW', 'EW_Loc'] = 1
+    filtered_df.loc[filtered_df['Direction'] == 'NS', 'NS_Loc'] = 1
+    filtered_df.loc[filtered_df['Direction'] == 'NS', 'EW_Type'] = np.nan
+    filtered_df.loc[filtered_df['Direction'] == 'NS', 'EW_Node'] = np.nan
+    filtered_df.ffill(inplace=True)
+
+    def per_obj_func(obj_df):
+        #ew_locs = obj_df.loc[(obj_df['EW_Loc']==1), 'TimeIndex'].to_numpy()
+        ew_locs = obj_df.loc[(obj_df['EW_Loc']==1) & (obj_df['EW_Node'] != 'AD'), 'TimeIndex'].to_numpy()
+        for timeindex in ew_locs: # consider incorrect predicton accuracy
+            obj_df.loc[obj_df['TimeIndex'].isin(range(timeindex-6,timeindex+6)), f'EW_Loc'] = 1
+        return obj_df
+
+    # Apply the function to each sub-dataframe
+    filtered_df = filtered_df.groupby('ObjectID').apply(per_obj_func).reset_index(level='ObjectID',drop=True)
+
+    filtered_df = filtered_df.loc[(filtered_df['Direction'] == 'EW') | 
+                    ((filtered_df['Direction'] == 'NS') & (filtered_df['Node'] == 'SS')) |
+                    ((filtered_df['Direction'] == 'NS') & (filtered_df['EW_Loc'] == 1)) |
+                    ((filtered_df['Direction'] == 'NS') & (filtered_df['EW_Type'] != 'NK'))]
+    filtered_df = filtered_df[submission_df.columns]
+    return filtered_df
+
+def remove_consecutive_ID_IK_method(submission_df):
+    """Remove consecutive ID/IK precitions with no other node inbetween, which result from splitting up localizers by node type"""
+    filtered_df = submission_df.copy()#.loc[submission_df['ObjectID'].isin([158])]
+    def per_obj_func(obj_df):
+        # identify consecutive ID and IK locs, and place them in the weighted center
+        def apply_func(grp):
+            if len(grp)>1 and (all(grp['Node']=='IK') or all(grp['Node']=='ID')):
+                grp = grp.iloc[len(grp)//2:len(grp)//2+1]
+                #grp['TimeIndex']=mean_time
+                #grp = grp.iloc[:1]
+
+            return grp
+        dir_dfs=[]
+        for dir in ['EW', 'NS']:
+            dir_df = obj_df.loc[obj_df['Direction']==dir]
+            dir_df['group'] = (dir_df['Node'] != dir_df['Node'].shift(1)).cumsum()
+            dir_df = dir_df.groupby(dir_df['group']).apply(apply_func).reset_index(level='group', drop=True) #filter(lambda x: (x['Node']=='ID').all()).nth(1)
+            # Filter rows where any number of consecutive values follow each other
+            dir_dfs.append(dir_df)
+        obj_df = pd.concat(dir_dfs)
+        return obj_df
+
+    # Apply the function to each sub-dataframe
+    filtered_df = filtered_df.groupby('ObjectID').apply(per_obj_func).reset_index(level='ObjectID',drop=True)
+    filtered_df = filtered_df[submission_df.columns]
+    return filtered_df
+
 def perform_submission_pipeline(classifier_dir,
                                 scaler_dir,
                                 split_dataframes,
                                 loc_preds,
                                 output_dirs,
+                                remove_ns_during_ew_nk=False,
+                                remove_consecutive_ID_IK=False,
                                 non_transform_features=[],
                                 diff_transform_features=[],
                                 sin_transform_features=[],
@@ -348,7 +408,6 @@ def perform_submission_pipeline(classifier_dir,
                                             input_dtype=np.float32,
                                             sort_inputs=True,
                                             seed=69)
-
     
     classifier_model = tf.keras.models.load_model(classifier_dir, compile=False)
 
@@ -362,8 +421,31 @@ def perform_submission_pipeline(classifier_dir,
                                 prediction_batches=5,
                                 verbose=2)
 
+    original_loc_preds = loc_preds.copy(deep=True) # preserve known & unknown columns
+    print(len(original_loc_preds.loc[original_loc_preds['Node']=='ID']))
     typed_df = fill_unknown_types_based_on_preds(pred_df, loc_preds, dirs=output_dirs)
     classified_df = fill_unknwon_nodes_based_on_type(typed_df, dirs=output_dirs)
+
+    if remove_ns_during_ew_nk:
+        # filter NS nodes during EW stationkeeping. Afterwards, a reclassification is necessary
+        filtered_df = remove_ns_during_ew_nk_method(classified_df)
+        filtered_df = filtered_df[['ObjectID', 'TimeIndex', 'Direction']]
+
+        filtered_df = filtered_df.merge(original_loc_preds, how='left', on=['ObjectID', 'TimeIndex', 'Direction'])
+        typed_df = fill_unknown_types_based_on_preds(pred_df, filtered_df, dirs=output_dirs)
+        classified_df = fill_unknwon_nodes_based_on_type(typed_df, dirs=output_dirs)
+        print(f'Removed {len(original_loc_preds)-len(filtered_df)} NS nodes during EW SK.')
+
+    if remove_consecutive_ID_IK:
+        # filter NS nodes during EW stationkeeping. Afterwards, a reclassification is necessary
+        filtered_df = remove_consecutive_ID_IK_method(classified_df)
+        filtered_df = filtered_df[['ObjectID', 'TimeIndex', 'Direction']]
+
+        filtered_df = filtered_df.merge(original_loc_preds, how='left', on=['ObjectID', 'TimeIndex', 'Direction'])
+        typed_df = fill_unknown_types_based_on_preds(pred_df, filtered_df, dirs=output_dirs)
+        classified_df = fill_unknwon_nodes_based_on_type(typed_df, dirs=output_dirs)
+        print(f'Removed {len(original_loc_preds)-len(filtered_df)} consecutive IK/ID nodes.')
+
     return classified_df
 
 

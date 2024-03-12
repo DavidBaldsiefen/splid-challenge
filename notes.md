@@ -9,7 +9,9 @@
 
 - Train on whole dataset
 - dynamic threshold that starts low, and then increases until n detections = n expected nodes?
-- remove NS detections during EW-NK, remove ID detections during SK
+- remove NS detections during EW-NK
+- remove ID detections during SK (not sure what I meant here)
+- if EW is NK, NS should be NK too - possibly add missing ID nodes?
 - more regularization on classifier, less on localizer
 - run two classifiers, one that just detects NK vs SK and then one that classifies between EK/CK/HK
 - Overview fts as separate input
