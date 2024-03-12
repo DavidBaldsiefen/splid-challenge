@@ -352,28 +352,27 @@ class Dense_NN(Prediction_Model):
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
         # create optimizer
-        optimizer = None
         if optimizer == 'adam':
             optimizer=keras.optimizers.Adam(learning_rate=0.001 if not lr_scheduler else
                                         lr_scheduler[0] if len(lr_scheduler)==1 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
         elif optimizer == 'SGD':
             optimizer=keras.optimizers.experimental.SGD(learning_rate=0.001 if not lr_scheduler else
                                         lr_scheduler[0] if len(lr_scheduler)==1 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
         elif optimizer == 'RMSprop':
             optimizer=keras.optimizers.experimental.RMSprop(learning_rate=0.001 if not lr_scheduler else
                                         lr_scheduler[0] if len(lr_scheduler)==1 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
         else:
             print('Unknown optimizer. defaulting to Adam')
             optimizer=keras.optimizers.Adam(learning_rate=0.001 if not lr_scheduler else
                                         lr_scheduler[0] if len(lr_scheduler)==1 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
-                                        optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001, decay_steps=lr_scheduler[0], decay_rate=lr_scheduler[1], staircase=True) if len(lr_scheduler)==2 else
+                                        tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=lr_scheduler[0], decay_steps=lr_scheduler[1], decay_rate=lr_scheduler[2], staircase=True))
 
         # select losses and metrics
         loss_functions = {
