@@ -193,13 +193,18 @@ class Dense_NN(Prediction_Model):
                  mixed_dropout_lstm=0.0,
                  mixed_batchnorm_cnn=False,
                  mixed_batchnorm_dense=False,
+                 mixed_batchnorm_lstm=False,
+                 split_cnn=False,
+                 split_dense=False,
+                 split_lstm=False,
+                 cnn_lstm_order='cnn_lstm', # 'lstm_cnn'
                  mixed_batchnorm_before_relu=True,
                  conv1d_layers=[], # [filters, kernel_size, kernel_stride, dilation_rate]
-                 convlstm1d_layers=[],
-                 conv2d_layers=[],
+                 convlstm1d_layers=[], # deprecated
+                 conv2d_layers=[], # deprecated
                  lstm_layers=[],
                  dense_layers=[32,32],
-                 deep_layer_in_output=False,
+                 deep_layer_in_output=False, # depcrecated
                  l2_reg=0.0,
                  lr_scheduler=[],
                  output_type='classification', # 'binary', 'regression'
@@ -217,6 +222,11 @@ class Dense_NN(Prediction_Model):
         in_shape = ds.element_spec[0].shape.as_list()
         in_shape = in_shape[1:] if in_shape[0] is None else in_shape # remove batch dimension
 
+        if len(ds.element_spec[1]) != 2:
+            split_cnn=False
+            split_dense=False
+            split_lstm=False
+
         # input layer
         inputs = layers.Input(shape=in_shape, name='Input')
         x = inputs
@@ -224,94 +234,78 @@ class Dense_NN(Prediction_Model):
         if input_dropout > 0.0:
             x = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x)
 
-        # CNN stack
-        for filters, kernel_size, kernel_stride, dilation_rate, maxpool in conv1d_layers:
-            x = layers.Conv1D(filters,
-                              kernel_size,
-                              strides=kernel_stride,
-                              dilation_rate=dilation_rate,
-                              activation=None,
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              bias_initializer=self.createInitializer('zeros')
-                              )(x)
-            if mixed_batchnorm_cnn and mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            x = layers.Activation('relu')(x)
-            if mixed_batchnorm_cnn and not mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            if maxpool>1:
-                x = layers.MaxPool1D(maxpool)(x)
-            if mixed_dropout_cnn > 0.0:
-                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
+        # STACKS
+        split_x = False
+        if cnn_lstm_order == 'cnn_lstm':
+            if conv1d_layers:
+                if split_cnn:
+                    x_L = self.create_cnn_stack(x_L if split_x else x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='L')
+                    x_R = self.create_cnn_stack(x_R if split_x else x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='R')
+                    split_x = True
+                else:
+                    if split_x: 
+                        x = layers.Concatenate(axis=-1)([x_L, x_R])
+                    x = self.create_cnn_stack(x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='')
+                    split_x = False
+                    
+            if lstm_layers:
+                if split_lstm:
+                    x_L = self.create_lstm_stack(x_L if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=False, name='L')
+                    x_R = self.create_lstm_stack(x_R if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=False, name='R')
+                    split_x = True
+                else:
+                    if split_x: 
+                        x = layers.Concatenate(axis=-1)([x_L, x_R])
+                    x = self.create_lstm_stack(x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=False, name='')
+                    split_x = False
+        else:
+            if lstm_layers:
+                if split_lstm:
+                    x_L = self.create_lstm_stack(x_L if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=True, name='L')
+                    x_R = self.create_lstm_stack(x_R if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=True, name='R')
+                    split_x = True
+                else:
+                    if split_x: 
+                        x = layers.Concatenate(axis=-1)([x_L, x_R])
+                    x = self.create_lstm_stack(x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
+                                            l2_reg, return_sequences=True, name='')
+                    split_x = False
 
-        for layer_id, (filters, kernel_size) in enumerate(convlstm1d_layers):
-            if layer_id == 0:
-                x = layers.Reshape((in_shape+[1]))(x)
-            x = layers.ConvLSTM1D(filters=filters, kernel_size=kernel_size, activation='tanh',
-                              return_sequences=(layer_id!=(len(convlstm1d_layers)-1)),
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              recurrent_activation='sigmoid',
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              recurrent_initializer=self.createInitializer('orthogonal'),
-                              bias_initializer=self.createInitializer('zeros'),
-                              dropout=mixed_dropout_cnn, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
-                              recurrent_dropout=0.0 # 0.0 as I though this would allow for GPU processing... nope
-                              )(x)
-            if mixed_batchnorm_cnn:
-                x = layers.BatchNormalization()(x)
-            # if mixed_dropout_cnn > 0.0:
-            #     x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
+            if conv1d_layers:
+                if split_cnn:
+                    x_L = self.create_cnn_stack(x_L if split_x else x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='L')
+                    x_R = self.create_cnn_stack(x_R if split_x else x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='R')
+                    split_x = True
+                else:
+                    if split_x: 
+                        x = layers.Concatenate(axis=-1)([x_L, x_R])
+                    x = self.create_cnn_stack(x, conv1d_layers, mixed_dropout_cnn,
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='')
+                    split_x = False
 
-        if conv2d_layers:
-            x = layers.Reshape((65,12,1))(x)
-        for filters, kernel_size in conv2d_layers:
-            x = layers.Conv2D(filters, kernel_size, activation=None,
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              bias_initializer=self.createInitializer('zeros')
-                              )(x)
-            if mixed_batchnorm_cnn and mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            x = layers.Activation('relu')(x)
-            if mixed_batchnorm_cnn and not mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            if mixed_dropout_cnn > 0.0:
-                x = layers.Dropout(mixed_dropout_cnn, seed=self._rnd_gen.integers(9999999))(x)
-
-        # lstm stack
-        for layer_id, units in enumerate(lstm_layers):
-            x = layers.LSTM(units, 
-                            activation='tanh',
-                              return_sequences=(layer_id!=(len(lstm_layers)-1)),
-                              kernel_regularizer=regularizers.l2(l2_reg),
-                              kernel_initializer=self.createInitializer('glorot_uniform'),
-                              recurrent_initializer=self.createInitializer('orthogonal'),
-                              bias_initializer=self.createInitializer('zeros'),
-                              dropout=mixed_dropout_lstm, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
-                              recurrent_dropout=mixed_dropout_lstm
-                              )(x)
-            if mixed_batchnorm_cnn:
-                x = layers.BatchNormalization()(x)
-            # if mixed_dropout_lstm > 0.0:
-            #     x = layers.Dropout(mixed_dropout_lstm, seed=self._rnd_gen.integers(9999999))(x)
-
-        # dense stack
-        x = layers.Flatten()(x)
-        for units in dense_layers[:len(dense_layers) if not deep_layer_in_output else len(dense_layers)-1]:
-            x = layers.Dense(units=units,
-                               activation=None,
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(x)
-            if mixed_batchnorm_dense and mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            x = layers.Activation('relu')(x)
-            if mixed_batchnorm_dense and not mixed_batchnorm_before_relu:
-                x = layers.BatchNormalization()(x)
-            if mixed_dropout_dense > 0.0:
-                x = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(x)
-        
+        if dense_layers:
+            if split_dense:
+                x_L = self.create_dense_stack(x_L if split_x else x, dense_layers, mixed_dropout_dense,
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='L')
+                x_R = self.create_dense_stack(x_R if split_x else x, dense_layers, mixed_dropout_dense,
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='R')
+                split_x = True
+            else:
+                if split_x:
+                    x = layers.Concatenate(axis=-1)([x_L, x_R])
+                x = self.create_dense_stack(x, dense_layers, mixed_dropout_dense,
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='')        
+                split_x = False
         # create outputs
         outputs = []
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
@@ -327,27 +321,13 @@ class Dense_NN(Prediction_Model):
             output_activation = final_activation if final_activation is not None else ('sigmoid' if output_type=='binary'
                                                                                        else ('softmax' if output_type=='classification'
                                                                                        else 'linear'))
-            output = x
-            if deep_layer_in_output:
-                output = layers.Dense(units=dense_layers[-1],
-                               activation=None,
-                               kernel_regularizer=regularizers.l2(l2_reg),
-                               kernel_initializer=self.createInitializer('glorot_uniform'),
-                               bias_initializer=self.createInitializer('zeros'))(output)
-                if mixed_batchnorm_dense and mixed_batchnorm_before_relu:
-                    output = layers.BatchNormalization()(output)
-                output = layers.Activation('relu')(output)
-                if mixed_batchnorm_dense and not mixed_batchnorm_before_relu:
-                    output = layers.BatchNormalization()(output)
-                if mixed_dropout_dense > 0.0:
-                    output = layers.Dropout(mixed_dropout_dense, seed=self._rnd_gen.integers(9999999))(output)
-            
+            output_input = x_L if (split_x and out_idx==0) else x_R if (split_x and out_idx==1) else x
             output = layers.Dense(units=n_units,
                                 activation=output_activation,
                                 kernel_regularizer=regularizers.l2(l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
-                                name=out_feature)(output)
+                                name=out_feature)(output_input)
             outputs.append(output)
         self._model = keras.Model(inputs=inputs, outputs=outputs[0] if len(outputs)==1 else outputs)
 
@@ -388,6 +368,66 @@ class Dense_NN(Prediction_Model):
         }
 
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
+    
+    def create_dense_stack(self, input_layer, dense_layers, dropout, batchnorm, batchnorm_before_relu, l2, name):
+        x = layers.Flatten(name=f'dense_flatten_{name}')(input_layer)
+        for layer_idx, units in enumerate(dense_layers):
+            x = layers.Dense(units=units,
+                                activation=None,
+                                kernel_regularizer=regularizers.l2(l2),
+                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                bias_initializer=self.createInitializer('zeros'),
+                                name=f'dense_{layer_idx}_{name}')(x)
+            if batchnorm and batchnorm_before_relu:
+                x = layers.BatchNormalization(name=f'dense_BN_{layer_idx}_{name}')(x)
+            x = layers.Activation('relu', name=f'dense_relu_{layer_idx}_{name}')(x)
+            if batchnorm and not batchnorm_before_relu:
+                x = layers.BatchNormalization(name=f'dense_BN_{layer_idx}_{name}')(x)
+            if dropout > 0.0:
+                x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'dense_DO_{layer_idx}_{name}')(x)
+        return x
+    
+    def create_cnn_stack(self, input_layer, cnn_layers, dropout, batchnorm, batchnorm_before_relu, l2, name=''):
+        x = input_layer
+        for layer_idx, (filters, kernel_size, kernel_stride, dilation_rate, maxpool) in enumerate(cnn_layers):
+            x = layers.Conv1D(filters,
+                              kernel_size,
+                              strides=kernel_stride,
+                              dilation_rate=dilation_rate,
+                              activation=None,
+                              kernel_regularizer=regularizers.l2(l2),
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              bias_initializer=self.createInitializer('zeros'),
+                              name=f'conv1d_{layer_idx}_{name}')(x)
+            if batchnorm and batchnorm_before_relu:
+                x = layers.BatchNormalization(name=f'conv1d_BN_{layer_idx}_{name}')(x)
+            x = layers.Activation('relu', name=f'conv1d_relu_{layer_idx}_{name}')(x)
+            if batchnorm and not batchnorm_before_relu:
+                x = layers.BatchNormalization(name=f'conv1d_BN_{layer_idx}_{name}')(x)
+            if maxpool>1:
+                x = layers.MaxPool1D(maxpool, name=f'conv1d_MP_{layer_idx}_{name}')(x)
+            if dropout > 0.0:
+                x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'conv1d_DO_{layer_idx}_{name}')(x)
+        return x
+    
+    def create_lstm_stack(self, input_layer, lstm_layers, dropout, batchnorm, l2, return_sequences, name=''):
+        x = input_layer
+        for layer_idx, units in enumerate(lstm_layers):
+            x = layers.LSTM(units, 
+                            activation='tanh',
+                              return_sequences=((layer_idx!=(len(lstm_layers)-1)) or return_sequences),
+                              kernel_regularizer=regularizers.l2(l2),
+                              kernel_initializer=self.createInitializer('glorot_uniform'),
+                              recurrent_initializer=self.createInitializer('orthogonal'),
+                              bias_initializer=self.createInitializer('zeros'),
+                              dropout=0.0, # Adding dropout here reduces reproducability, but we dont have that anyway due to GPU computing
+                              recurrent_dropout=0.0, # adding recurrent dropout prevents CUDNN computation!
+                              name=f'lstm_{layer_idx}_{name}')(x)
+            if batchnorm:
+                x = layers.BatchNormalization(name=f'lstm_BN_{layer_idx}_{name}')(x)
+            if dropout > 0.0:
+                x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'lstm_DO_{layer_idx}_{name}')(x)
+        return x
 
 class Anchored_Regularizer(tf.keras.regularizers.Regularizer):
     """A Regularizer that regularizes around an anchor distribution"""

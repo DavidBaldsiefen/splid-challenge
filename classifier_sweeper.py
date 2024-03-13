@@ -66,7 +66,15 @@ def parameter_sweep(config=None):
                     non_transform_features.remove(ft_name)
 
         for key, value in config.feature_engineering.items():
-            ft_name = key.replace('_', ' ') + ' (deg)'
+            ft_name = key
+            if key == 'Eccentricity': ft_name = 'Eccentricity'
+            elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
+            elif key == 'Inclination': ft_name = 'Inclination (deg)'
+            elif key == 'RAAN': ft_name = 'RAAN (deg)'
+            elif key == 'Argument_of_Periapsis': ft_name = 'Argument of Periapsis (deg)'
+            elif key == 'True_Anomaly': ft_name = 'True Anomaly (deg)'
+            elif key == 'Longitude': ft_name = 'Longitude (deg)'
+            elif key == 'Latitude': ft_name = 'Latitude (deg)'
             if value == 'diff': diff_transform_features += [ft_name]
             elif value == 'sin': sin_transform_features += [ft_name]
             elif value == 'sin_cos': sin_cos_transform_features += [ft_name]
@@ -74,6 +82,7 @@ def parameter_sweep(config=None):
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
         
         ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+                                              exclude_objects=[10, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
                                                 sin_transform_features=sin_transform_features,
@@ -109,7 +118,7 @@ def parameter_sweep(config=None):
         print('Val-keys:', ds_gen.val_keys[:10])
         
 
-        train_ds, val_ds = ds_gen.get_datasets(batch_size=256,
+        train_ds, val_ds = ds_gen.get_datasets(batch_size=config.training['batch_size'],
                                                label_features=[f'{dir}_Type' for dir in dirs],
                                                with_identifier=False,
                                                shuffle=True,
@@ -124,19 +133,23 @@ def parameter_sweep(config=None):
         model = prediction_models.Dense_NN(val_ds, 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
-                                           deep_layer_in_output=config.model['deep_layer_in_output'],
                                            lstm_layers=config.model['lstm_layers'],
+                                           cnn_lstm_order=config.model['cnn_lstm_order'],
+                                           split_cnn=config.model['split_cnn'],
+                                           split_dense=config.model['split_dense'],
+                                           split_lstm=config.model['split_lstm'],
                                            l2_reg=config.model['l2_reg'],
                                            input_dropout=config.model['input_dropout'],
                                            mixed_dropout_dense=config.model['mixed_dropout_dense'],
                                            mixed_dropout_cnn=config.model['mixed_dropout_cnn'],
                                            mixed_dropout_lstm=config.model['mixed_dropout_lstm'],
                                            mixed_batchnorm_cnn=config.model['mixed_batchnorm_cnn'],
+                                           mixed_batchnorm_lstm=config.model['mixed_batchnorm_lstm'],
                                            mixed_batchnorm_dense=config.model['mixed_batchnorm_dense'],
                                            mixed_batchnorm_before_relu=config.model['mixed_batchnorm_before_relu'],
                                            lr_scheduler=config.model['lr_scheduler'],
                                            output_type='classification',
-                                           seed=0)
+                                           seed=config.model['seed'])
         model.summary()
 
         # class_weights ={
@@ -154,7 +167,7 @@ def parameter_sweep(config=None):
                          val_ds=val_ds,
                          epochs=500,
                          plot_hist=False,
-                         early_stopping=42,
+                         early_stopping=69,
                          save_best_only=True,
                          target_metric='val_EW_Type_accuracy' if len(dirs) > 1 else 'val_accuracy',
                          #class_weight=class_weights, 
@@ -255,33 +268,35 @@ sweep_configuration = {
             "parameters" : {
                 'Eccentricity' : {"values": [True]},
                 'Semimajor_Axis' : {"values": [True]},
-                'Inclination' : {"values": [True]},
-                'RAAN' : {"values": [False]},
+                'Inclination' : {"values": [False]},
+                'RAAN' : {"values": [True]},
                 'Argument_of_Periapsis' : {"values": [False]},
-                'True_Anomaly' : {"values": [False]},
-                'Longitude' : {"values": [True]},
+                'True_Anomaly' : {"values": [True]},
+                'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
             }
         },
         "highpass_features" : {
             "parameters" : {
-                'Eccentricity' : {"values": [True, False]},
-                'Semimajor_Axis' : {"values": [False, True]},
+                'Eccentricity' : {"values": [False]},
+                'Semimajor_Axis' : {"values": [False]},
                 'Inclination' : {"values": [False]},
-                'RAAN' : {"values": [False, True]},
-                'Argument_of_Periapsis' : {"values": [False, True]},
-                'True_Anomaly' : {"values": [False, True]},
+                'RAAN' : {"values": [False]},
+                'Argument_of_Periapsis' : {"values": [False]},
+                'True_Anomaly' : {"values": [False]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [False]},
             }
         },
         "feature_engineering" : {
             "parameters" : {
-                'Inclination' : {"values": ['non']},
-                'RAAN' : {"values": ['sin']},
-                'Argument_of_Periapsis' : {"values": ['diff']},
+                'Eccentricity' : {"values": ['diff']},
+                'Semimajor_Axis' : {"values": ['diff']},
+                'Inclination' : {"values": ['diff']},
+                'RAAN' : {"values": ['non']},
+                'Argument_of_Periapsis' : {"values": ['sin']},
                 'True_Anomaly' : {"values": ['diff']},
-                'Longitude' : {"values": ['non']},
+                'Longitude' : {"values": ['sin']},
                 'Latitude' : {"values": ['non']},
             }
         },
@@ -291,53 +306,60 @@ sweep_configuration = {
                                                    #['Longitude (sin)', 'RAAN (deg)', 'Eccentricity']
                                                    ]},
             'overview_features_std' : {"values" : [[],
-                                                   #['Latitude (deg)', 'Argument of Periapsis (sin)']
+                                                   #['Longitude (sin)', 'Latitude (deg)', 'Argument of Periapsis (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
             "nodes_to_include_as_locations" : {"values": [['SS', 'AD', 'IK', 'ID'],
                                                           #['SS', 'AD', 'IK']
                                                           ]},
             "stride" : {"values": [1]},
-            "keep_label_stride" : {"values": [1]}, # if 1, keep only labels
+            "keep_label_stride" : {"values": [800]}, # if 1, keep only labels
             "input_stride" : {"values": [1]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "add_linear_timeindex" : {"values": [False]},
+            "add_linear_timeindex" : {"values": [True]},
             "input_history_steps" : {"values": [16]},
-            "input_future_steps" : {"values": [128]},
+            "input_future_steps" : {"values": [160]},
             }
         },
         "model" : {
             "parameters" : {
-            "conv1d_layers" : {"values": [#[]
-                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
-                                          [[64,7,1,1,1],[64,7,1,1,1],[48,14,4,1,1]],
-                                          [[64,9,1,2,1],[64,9,1,1,1],[48,9,3,1,1]],
+            "conv1d_layers" : {"values": [[],
+                                          #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
+                                          #[[128,7,1,1,1],[128,7,1,1,1],[64,7,2,1,1]],
+                                            [[128,7,1,1,1],[48,7,2,1,1]],
+                                          #[[128,7,1,1,1],[128,7,1,1,1],[64,14,4,1,1]],
+                                          #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
                                           #[[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
-            "conv2d_layers" : {"values": [[]]},
             "dense_layers" : {"values": [[64,32]]},
-            "deep_layer_in_output" : {"values": [True]},
-            "lstm_layers" : {"values": [[]]},
+            "lstm_layers" : {"values": [[],
+                                        [48,48]]},
+            "cnn_lstm_order" : {"values" : ['lstm_cnn', 'cnn_lstm']},
+            "split_cnn" : {"values" : [True, False]},
+            "split_dense" : {"values" : [True, False]},
+            "split_lstm" : {"values" : [True, False]},
             "l2_reg" : {"values": [0.001]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [False]},
             "mixed_batchnorm_dense" : {"values": [False]},
+            "mixed_batchnorm_lstm" : {"values": [False]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.05]},
             "mixed_dropout_cnn" : {"values": [0.05]},
-            "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.0025]]},
-            "seed" : {"values": [0]},
+            "mixed_dropout_lstm" : {"values": [0.05]},
+            "lr_scheduler" : {"values": [[0.0035, 2000, 0.9]]},
+            "optimizer" : {"values": ['SGD']},
+            "seed" : {"values": [42]},
             }
         },
         "training" : {
             "parameters" : {
             "batch_size" : {"values": [128]},
-            "directions" : {"values" : [#['EW', 'NS'],
-                                        ['EW'],
-                                        ['NS']
+            "directions" : {"values" : [['EW', 'NS'],
+                                        #['EW'],
+                                        #['NS']
                                         ]}
             }
         },
