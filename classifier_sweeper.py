@@ -5,10 +5,14 @@ from wandb.keras import WandbMetricsLogger
 from pathlib import Path
 import gc
 import pickle
+import copy
 
 from base import datahandler, prediction_models, evaluation, utils, classifier
 
-
+challenge_data_dir = Path('dataset/phase_1_v3/')
+data_dir = challenge_data_dir / "train"
+labels_dir = challenge_data_dir / 'train_labels.csv'
+split_dataframes_original = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
 def parameter_sweep(config=None):
     with wandb.init(config=config):
@@ -17,10 +21,7 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        challenge_data_dir = Path('dataset/phase_1_v3/')
-        data_dir = challenge_data_dir / "train"
-        labels_dir = challenge_data_dir / 'train_labels.csv'
-        split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+        split_dataframes = copy.deepcopy(split_dataframes_original)
 
         dirs=config.training['directions']
         print(f"Directions: {dirs}")
@@ -211,7 +212,7 @@ def parameter_sweep(config=None):
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
         typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
         classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
-        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df)
+        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df, ignore_nodes=True)
 
 
         precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
@@ -239,7 +240,7 @@ def parameter_sweep(config=None):
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
         typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
         classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
-        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df)
+        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df, ignore_nodes=True)
         precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
         wandb.define_metric('train_Precision', summary="max")
         wandb.define_metric('train_TP', summary="max")
@@ -320,8 +321,8 @@ sweep_configuration = {
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [True]},
-            "input_history_steps" : {"values": [16]},
-            "input_future_steps" : {"values": [160]},
+            "input_history_steps" : {"values": [18]},
+            "input_future_steps" : {"values": [180]},
             }
         },
         "model" : {
@@ -335,15 +336,15 @@ sweep_configuration = {
                                           #[[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
             "dense_layers" : {"values": [[64,32]]},
-            "lstm_layers" : {"values": [[[64, True, 2]],
+            "lstm_layers" : {"values": [[[32, True, 4]],
                                         #[[48, False, 1],[48, False, 1]]
                                         ]},
             "cnn_lstm_order" : {"values" : ['lstm_cnn']},
             "split_cnn" : {"values" : [True]},
             "split_dense" : {"values" : [False]},
             "split_lstm" : {"values" : [True]},
-            "l1_reg" : {"values": [0.0, 0.002]},
-            "l2_reg" : {"values": [0.0, 0.002]},
+            "l1_reg" : {"values": [0.0]},
+            "l2_reg" : {"values": [0.0001, 0.0002]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [False]},
             "mixed_batchnorm_dense" : {"values": [False]},
@@ -352,14 +353,14 @@ sweep_configuration = {
             "mixed_dropout_dense" : {"values": [0.0]},
             "mixed_dropout_cnn" : {"values": [0.0]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [[0.0035, 1500, 0.9]]},
-            "optimizer" : {"values": ['SGD']},
+            "lr_scheduler" : {"values": [[0.0035, 696, 0.9]]},
+            "optimizer" : {"values": ['adam']},
             "seed" : {"values": [42]},
             }
         },
         "training" : {
             "parameters" : {
-            "batch_size" : {"values": [128]},
+            "batch_size" : {"values": [128,256]},
             "directions" : {"values" : [['EW', 'NS'],
                                         #['EW'],
                                         #['NS']

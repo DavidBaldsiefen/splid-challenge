@@ -7,12 +7,14 @@ import argparse
 from fastcore.all import *
 
 class NodeDetectionEvaluator:
-    def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False, verbose=1):
+    def __init__(self, ground_truth, participant, tolerance=6, ignore_classes=False, ignore_nodes=False, verbose=1):
         self.ground_truth = ground_truth.copy()
         self.participant = participant.copy()
         self.tolerance = tolerance
         self.ignore_classes=ignore_classes
+        self.ignore_nodes=ignore_nodes
         if ignore_classes and verbose>0: print("Evaluator ignoring classifications")
+        if ignore_nodes and verbose>0: print("Evaluator ignoring nodes (i.e. only evaluating type)")
         
     def evaluate(self, object_id):
         gt_object = self.ground_truth[(self.ground_truth['ObjectID'] == object_id) & \
@@ -40,7 +42,9 @@ class NodeDetectionEvaluator:
                 p_idx = matching_participant_events.index[0]
                 p_row = matching_participant_events.iloc[0]
                 distance = p_row['TimeIndex'] - gt_row['TimeIndex']
-                if self.ignore_classes or (p_row['Node'] == gt_row['Node'] and p_row['Type'] == gt_row['Type']):
+                if (self.ignore_classes or 
+                    (self.ignore_nodes and (p_row['Type'] == gt_row['Type']))
+                    or (p_row['Node'] == gt_row['Node'] and p_row['Type'] == gt_row['Type'])):
                     tp += 1
                     gt_object.loc[gt_idx, 'classification'] = 'TP'
                     gt_object.loc[gt_idx, 'distance'] = distance
