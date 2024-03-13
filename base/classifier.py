@@ -136,7 +136,9 @@ def fill_unknwon_nodes_based_on_type(df, dirs=['EW', 'NS']):
                         prev_type = sub_df.loc[index-1, 'Type']
                         next_type = sub_df.loc[index, 'Type']
                         node = ''
-                        if prev_type == 'NK' and next_type =='NK': node = 'AD'
+                        if prev_type == 'NK' and next_type =='NK': 
+                            if dir == 'EW': node = 'AD'
+                            else: node = 'ID' # NS cannot be AD, so choose ID
                         elif prev_type in ['CK', 'EK', 'HK'] and next_type == 'NK': node = 'ID'
                         elif prev_type == 'NK' and next_type in ['CK', 'EK', 'HK']: node = 'IK'
                         else: node = 'IK' # something is wrong, so choose the most common node
