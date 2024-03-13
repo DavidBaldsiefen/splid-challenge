@@ -202,9 +202,10 @@ class Dense_NN(Prediction_Model):
                  conv1d_layers=[], # [filters, kernel_size, kernel_stride, dilation_rate]
                  convlstm1d_layers=[], # deprecated
                  conv2d_layers=[], # deprecated
-                 lstm_layers=[],
+                 lstm_layers=[], # [units, return_sequence, maxpool]
                  dense_layers=[32,32],
                  deep_layer_in_output=False, # depcrecated
+                 l1_reg=0.0,
                  l2_reg=0.0,
                  lr_scheduler=[],
                  output_type='classification', # 'binary', 'regression'
@@ -240,71 +241,71 @@ class Dense_NN(Prediction_Model):
             if conv1d_layers:
                 if split_cnn:
                     x_L = self.create_cnn_stack(x_L if split_x else x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='L')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L')
                     x_R = self.create_cnn_stack(x_R if split_x else x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='R')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R')
                     split_x = True
                 else:
                     if split_x: 
                         x = layers.Concatenate(axis=-1)([x_L, x_R])
                     x = self.create_cnn_stack(x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='')
                     split_x = False
                     
             if lstm_layers:
                 if split_lstm:
                     x_L = self.create_lstm_stack(x_L if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=False, name='L')
+                                            l1_reg, l2_reg, return_sequences=False, name='L')
                     x_R = self.create_lstm_stack(x_R if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=False, name='R')
+                                            l1_reg, l2_reg, return_sequences=False, name='R')
                     split_x = True
                 else:
                     if split_x: 
                         x = layers.Concatenate(axis=-1)([x_L, x_R])
                     x = self.create_lstm_stack(x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=False, name='')
+                                            l1_reg, l2_reg, return_sequences=False, name='')
                     split_x = False
         else:
             if lstm_layers:
                 if split_lstm:
                     x_L = self.create_lstm_stack(x_L if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=True, name='L')
+                                            l1_reg, l2_reg, return_sequences=True, name='L')
                     x_R = self.create_lstm_stack(x_R if split_x else x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=True, name='R')
+                                            l1_reg, l2_reg, return_sequences=True, name='R')
                     split_x = True
                 else:
                     if split_x: 
                         x = layers.Concatenate(axis=-1)([x_L, x_R])
                     x = self.create_lstm_stack(x, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l2_reg, return_sequences=True, name='')
+                                            l1_reg, l2_reg, return_sequences=True, name='')
                     split_x = False
 
             if conv1d_layers:
                 if split_cnn:
                     x_L = self.create_cnn_stack(x_L if split_x else x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='L')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L')
                     x_R = self.create_cnn_stack(x_R if split_x else x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='R')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R')
                     split_x = True
                 else:
                     if split_x: 
                         x = layers.Concatenate(axis=-1)([x_L, x_R])
                     x = self.create_cnn_stack(x, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l2_reg, name='')
+                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='')
                     split_x = False
 
         if dense_layers:
             if split_dense:
                 x_L = self.create_dense_stack(x_L if split_x else x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='L')
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L')
                 x_R = self.create_dense_stack(x_R if split_x else x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='R')
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R')
                 split_x = True
             else:
                 if split_x:
                     x = layers.Concatenate(axis=-1)([x_L, x_R])
                 x = self.create_dense_stack(x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l2_reg, name='')        
+                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='')        
                 split_x = False
         # create outputs
         outputs = []
@@ -324,7 +325,7 @@ class Dense_NN(Prediction_Model):
             output_input = x_L if (split_x and out_idx==0) else x_R if (split_x and out_idx==1) else x
             output = layers.Dense(units=n_units,
                                 activation=output_activation,
-                                kernel_regularizer=regularizers.l2(l2_reg),
+                                kernel_regularizer=regularizers.L1L2(l1=l1_reg, l2=l2_reg),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
                                 name=out_feature)(output_input)
@@ -369,12 +370,12 @@ class Dense_NN(Prediction_Model):
 
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
     
-    def create_dense_stack(self, input_layer, dense_layers, dropout, batchnorm, batchnorm_before_relu, l2, name):
+    def create_dense_stack(self, input_layer, dense_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name):
         x = layers.Flatten(name=f'dense_flatten_{name}')(input_layer)
         for layer_idx, units in enumerate(dense_layers):
             x = layers.Dense(units=units,
                                 activation=None,
-                                kernel_regularizer=regularizers.l2(l2),
+                                kernel_regularizer=regularizers.L1L2(l1=l1, l2=l2),
                                 kernel_initializer=self.createInitializer('glorot_uniform'),
                                 bias_initializer=self.createInitializer('zeros'),
                                 name=f'dense_{layer_idx}_{name}')(x)
@@ -387,7 +388,7 @@ class Dense_NN(Prediction_Model):
                 x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'dense_DO_{layer_idx}_{name}')(x)
         return x
     
-    def create_cnn_stack(self, input_layer, cnn_layers, dropout, batchnorm, batchnorm_before_relu, l2, name=''):
+    def create_cnn_stack(self, input_layer, cnn_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name=''):
         x = input_layer
         for layer_idx, (filters, kernel_size, kernel_stride, dilation_rate, maxpool) in enumerate(cnn_layers):
             x = layers.Conv1D(filters,
@@ -395,7 +396,7 @@ class Dense_NN(Prediction_Model):
                               strides=kernel_stride,
                               dilation_rate=dilation_rate,
                               activation=None,
-                              kernel_regularizer=regularizers.l2(l2),
+                              kernel_regularizer=regularizers.L1L2(l1=l1, l2=l2),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               bias_initializer=self.createInitializer('zeros'),
                               name=f'conv1d_{layer_idx}_{name}')(x)
@@ -410,13 +411,13 @@ class Dense_NN(Prediction_Model):
                 x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'conv1d_DO_{layer_idx}_{name}')(x)
         return x
     
-    def create_lstm_stack(self, input_layer, lstm_layers, dropout, batchnorm, l2, return_sequences, name=''):
+    def create_lstm_stack(self, input_layer, lstm_layers, dropout, batchnorm, l1, l2, return_sequences, name=''):
         x = input_layer
-        for layer_idx, units in enumerate(lstm_layers):
+        for layer_idx, (units, layer_return_sequences, maxpool) in enumerate(lstm_layers):
             x = layers.LSTM(units, 
                             activation='tanh',
-                              return_sequences=((layer_idx!=(len(lstm_layers)-1)) or return_sequences),
-                              kernel_regularizer=regularizers.l2(l2),
+                              return_sequences=(return_sequences or layer_return_sequences),
+                              kernel_regularizer=regularizers.L1L2(l1=l1, l2=l2),
                               kernel_initializer=self.createInitializer('glorot_uniform'),
                               recurrent_initializer=self.createInitializer('orthogonal'),
                               bias_initializer=self.createInitializer('zeros'),
@@ -425,6 +426,8 @@ class Dense_NN(Prediction_Model):
                               name=f'lstm_{layer_idx}_{name}')(x)
             if batchnorm:
                 x = layers.BatchNormalization(name=f'lstm_BN_{layer_idx}_{name}')(x)
+            if maxpool>1:
+                x = layers.MaxPool1D(maxpool, name=f'lstm_MP_{layer_idx}_{name}')(x)
             if dropout > 0.0:
                 x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'lstm_DO_{layer_idx}_{name}')(x)
         return x
