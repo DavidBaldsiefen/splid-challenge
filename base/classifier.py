@@ -141,7 +141,7 @@ def fill_unknwon_nodes_based_on_type(df, dirs=['EW', 'NS']):
                             else: node = 'ID' # NS cannot be AD, so choose ID
                         elif prev_type in ['CK', 'EK', 'HK'] and next_type == 'NK': node = 'ID'
                         elif prev_type == 'NK' and next_type in ['CK', 'EK', 'HK']: node = 'IK'
-                        else: node = 'IK' # something is wrong, so choose the most common node
+                        else: node = 'IK' # something is wrong as there is no SK-SK node, but SK has to go with IK
                         sub_df.loc[index, 'Node'] = node
 
         dfs.append(sub_df)
@@ -420,7 +420,7 @@ def perform_submission_pipeline(classifier_dir,
                                 only_nodes=False,
                                 model_outputs=[f'{dir}_Type' for dir in output_dirs],
                                 object_limit=None,
-                                prediction_batches=5,
+                                prediction_batches=int(((input_future_steps+input_history_steps)/input_stride)/25.05),
                                 verbose=2)
 
     original_loc_preds = loc_preds.copy(deep=True) # preserve known & unknown columns
