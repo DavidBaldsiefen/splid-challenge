@@ -406,7 +406,7 @@ def perform_submission_pipeline(classifier_dir,
                                             input_future_steps=input_future_steps,
                                             per_object_scaling=per_object_scaling,
                                             custom_scaler=scaler,
-                                            unify_value_ranges=False,
+                                            unify_value_ranges=True,
                                             input_dtype=np.float32,
                                             sort_inputs=True,
                                             seed=69)
