@@ -207,7 +207,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     scaler_dir=SCALER_CLASSIFIER_DIR,
                                                     split_dataframes=split_dataframes,
                                                     loc_preds=df_locs,
-                                                    remove_ns_during_ew_nk=False,
+                                                    remove_ns_during_ew_nk=True,
                                                     remove_consecutive_ID_IK=False,
                                                     output_dirs=['EW', 'NS'],
                                                     non_transform_features=['Eccentricity',

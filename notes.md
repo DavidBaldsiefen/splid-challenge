@@ -8,8 +8,6 @@
 ### TODOs & Ideas
 
 - Train on whole dataset
-- l1 reg vs l2 reg
-- try using lstm with return_sequence=True followed by maxpool
 - replace simple input-stride with one where each value represents the local mean (np.convolve followed by stride)
 - dynamic threshold that starts low, and then increases until n detections = n expected nodes?
 - if EW is NK, NS should be NK too - possibly add missing ID nodes?

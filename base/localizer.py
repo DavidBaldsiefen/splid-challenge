@@ -52,6 +52,8 @@ def create_prediction_df(ds_gen,
         if not stateful:
             datasets = ds_gen.get_datasets(batch_size=ds_batch_size,
                                             label_features=[],
+                                            overview_as_second_input=isinstance(model, list),
+                                            convolve_input_stride=True,
                                             shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                             with_identifier=True,
                                             only_ew_sk=only_ew_sk,
@@ -63,6 +65,9 @@ def create_prediction_df(ds_gen,
             identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
             # get predictions
+            if not isinstance(model, list) and not (model.layers[0]._name == list(ds.element_spec[0].keys())[0]):
+                print(f"Renaming model input to \'{list(ds.element_spec[0].keys())[0]}\' to ensure ds compatibility.")
+                model.layers[0]._name = list(ds.element_spec[0].keys())[0]
             preds = np.asarray(model.predict(ds, verbose=verbose))
 
             all_identifiers.append(identifiers)

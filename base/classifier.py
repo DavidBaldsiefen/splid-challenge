@@ -68,6 +68,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
         val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
         datasets = ds_gen.get_datasets(batch_size=512,
                                         label_features=[] if test else model_outputs,
+                                        overview_as_second_input=isinstance(model, list),
                                         shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                         with_identifier=True,
                                         train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
@@ -79,6 +80,9 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
         identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
 
         # get predictions
+        if not isinstance(model, list) and not (model.layers[0]._name == list(ds.element_spec[0].keys())[0]):
+                print(f"Renaming model input to \'{list(ds.element_spec[0].keys())[0]}\' to ensure ds compatibility.")
+                model.layers[0]._name = list(ds.element_spec[0].keys())[0]
         preds = np.asarray(model.predict(ds, verbose=verbose)) # TODO: may fail if single-class pred
 
         all_identifiers.append(identifiers)

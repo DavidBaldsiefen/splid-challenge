@@ -396,6 +396,7 @@ class DatasetGenerator():
                                   input_features,
                                   overview_features_mean,
                                   overview_features_std,
+                                  overview_as_second_input,
                                   label_features,
                                   only_nodes,
                                   only_ew_sk,
@@ -406,6 +407,7 @@ class DatasetGenerator():
                                   keep_label_stride,
                                   stride_offset,
                                   input_stride,
+                                  convolve_input_stride,
                                   padding,
                                   verbose=1):
         
@@ -418,7 +420,8 @@ class DatasetGenerator():
         # "Reserve" np arrays (this is efficient but does not actually block the memory)
         n_rows = np.sum([ln for ln in obj_lens.values()])
         n_rows = (n_rows//(stride+keep_label_stride-1)+150000) if (not only_nodes) else 15000 # consider stride with some buffer just to be sure
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features) + len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        inputs_overview = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [1, time, features]
         labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
 
@@ -492,14 +495,18 @@ class DatasetGenerator():
                 #mean
                 segmented_features_mean=np.split(split_df[key][overview_features_mean].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
                 mean_vals = np.mean(segmented_features_mean, axis=1)
-                inputs[current_row:current_row+strided_obj_len,:,len(input_features):len(input_features)+len(overview_features_mean)] = mean_vals
+                inputs_overview[current_row:current_row+strided_obj_len,:,0:len(overview_features_mean)] = mean_vals
                 #std
                 segmented_features_std=np.split(split_df[key][overview_features_std].to_numpy()[object_border:object_border+n_segments*segment_length,:], n_segments)
                 std_vals = np.std(segmented_features_std, axis=1)
-                inputs[current_row:current_row+strided_obj_len,:,len(input_features)+len(overview_features_mean):] = std_vals
+                inputs_overview[current_row:current_row+strided_obj_len,:,len(overview_features_mean):] = std_vals
             
             # determine the inputs, labels and identifiers of the indices we want to keep
-            inputs[current_row:current_row+strided_obj_len,:,:len(input_features)] = np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,]
+            inputs[current_row:current_row+strided_obj_len,:,:] = (
+                np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,] if (not convolve_input_stride or input_stride==1) else
+                np.apply_along_axis(lambda m: np.convolve(np.pad(m, (input_stride//2, 0), mode='edge'), np.ones(input_stride)/input_stride, mode='valid'), axis=1, arr=np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,:,:,])[:,::input_stride,:,]
+            )
+
             labels[current_row:current_row+strided_obj_len] = obj_labels[obj_indices_to_keep] if label_features else 0.0
             element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep,:]
 
@@ -513,6 +520,7 @@ class DatasetGenerator():
 
         # limit the arrays to the actual "filled" portion
         inputs = inputs[:current_row]
+        inputs_overview = inputs_overview[:current_row]
         labels = labels[:current_row]
         element_identifiers = element_identifiers[:current_row]
 
@@ -522,14 +530,21 @@ class DatasetGenerator():
             ew_sk_markers = ew_sk_markers[:current_row]
             ew_sk_fields = np.argwhere(ew_sk_markers != ew_nk_label)[:,0]
             inputs = inputs[ew_sk_fields]
+            inputs_overview = inputs_overview[ew_sk_fields]
             labels = labels[ew_sk_fields]
             element_identifiers = element_identifiers[ew_sk_fields]
             
         # finally, create the dataset
         with tf.device("CPU"):
-            dataset = tf.data.Dataset.from_tensor_slices((inputs, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}, element_identifiers) if (label_features and with_identifier) else
-                                                (inputs, element_identifiers) if ((not label_features) and with_identifier) else
-                                                (inputs, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))
+            if (overview_features_mean or overview_features_std) and overview_as_second_input:
+                dataset = tf.data.Dataset.from_tensor_slices(({'local_in': inputs, 'global_in':inputs_overview}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}, element_identifiers) if (label_features and with_identifier) else
+                                                    ({'local_in': inputs, 'global_in':inputs_overview}, element_identifiers) if ((not label_features) and with_identifier) else
+                                                    ({'local_in': inputs, 'global_in':inputs_overview}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))
+            else:
+                inputs = np.concatenate([inputs, inputs_overview] if (overview_features_mean or overview_features_std) else [inputs], axis=-1)
+                dataset = tf.data.Dataset.from_tensor_slices(({'local_in': inputs}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}, element_identifiers) if (label_features and with_identifier) else
+                                                    ({'local_in': inputs}, element_identifiers) if ((not label_features) and with_identifier) else
+                                                    ({'local_in': inputs}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))
 
         # Do some garbage collection - StackOverflow is not sure if this will help or not
         del labels
@@ -640,8 +655,8 @@ class DatasetGenerator():
         return datasets if len(datasets)>1 else datasets[0]
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
-                     with_identifier=False, only_nodes=False, only_ew_sk=False, shuffle=True,
-                     train_keys=None, val_keys=None, stride=1, keep_label_stride=1, stride_offset=0, verbose=0):
+                     with_identifier=False, only_nodes=False, only_ew_sk=False, overview_as_second_input=False, shuffle=True,
+                     train_keys=None, val_keys=None, convolve_input_stride=True, stride=1, keep_label_stride=1, stride_offset=0, verbose=0):
         
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
@@ -651,6 +666,7 @@ class DatasetGenerator():
                                                 input_features=self._input_features,
                                                 overview_features_mean=self._overview_features_mean,
                                                 overview_features_std=self._overview_features_std,
+                                                overview_as_second_input=overview_as_second_input,
                                                 label_features=label_features,
                                                 only_nodes=only_nodes,
                                                 only_ew_sk=only_ew_sk,
@@ -661,6 +677,7 @@ class DatasetGenerator():
                                                 stride_offset=stride_offset,
                                                 keep_label_stride=keep_label_stride,
                                                 input_stride=self._input_stride,
+                                                convolve_input_stride=convolve_input_stride,
                                                 padding=self._padding,
                                                 verbose=verbose)
         datasets = [train_ds]
@@ -671,6 +688,7 @@ class DatasetGenerator():
                                                     input_features=self._input_features,
                                                     overview_features_mean=self._overview_features_mean,
                                                     overview_features_std=self._overview_features_std,
+                                                    overview_as_second_input=overview_as_second_input,
                                                     label_features=label_features,
                                                     only_nodes=only_nodes,
                                                     only_ew_sk=only_ew_sk,
@@ -681,6 +699,7 @@ class DatasetGenerator():
                                                     stride_offset=stride_offset,
                                                     keep_label_stride=keep_label_stride,
                                                     input_stride=self._input_stride,
+                                                    convolve_input_stride=convolve_input_stride,
                                                     padding=self._padding,
                                                     verbose=verbose)
             datasets.append(val_ds)
@@ -693,14 +712,27 @@ class DatasetGenerator():
             datasets = [ds.batch(batch_size) for ds in datasets]
         return datasets if len(datasets)>1 else datasets[0]
     
-    def plot_dataset_items(self, ds_with_identifier):
-        # TODO: plot random dataset items for debugging
-        print("TBD")
-        inputs = np.concatenate([element for element in ds_with_identifier.map(lambda x,y,z:x).as_numpy_iterator()])
-        identifiers = np.concatenate([element for element in ds_with_identifier.map(lambda x,y,z:z).as_numpy_iterator()])
+    def plot_dataset_items(self, ds_with_identifier, objectid, timeindex):
+        import matplotlib.pyplot as plt
 
-        # Take some element
-        print(inputs.shape, identifiers.shape)
+        # plot random dataset item for debugging
+        def filter_fn(x,y,z):
+            return z[0]==objectid and z[1] == timeindex
+        
+        inputs = np.asarray([element for element in ds_with_identifier.unbatch().filter(filter_fn).map(lambda x,y,z:x).as_numpy_iterator()])[0]['local_in']
+        identifier = np.asarray([element for element in ds_with_identifier.unbatch().filter(filter_fn).map(lambda x,y,z:z).as_numpy_iterator()])
+
+        ft_labels = self._input_features + [f'{ft} (overview-mean)' for ft in self._overview_features_mean] + [f'{ft} (overview-std)' for ft in self._overview_features_std]
+
+        print(ft_labels)
+
+        fig, axes = plt.subplots(nrows=len(ft_labels), ncols=1, figsize=(16,1*len(ft_labels)))
+        plt.tight_layout()
+        for ft_idx, input_ft in enumerate(ft_labels):
+            x_vals = range(inputs.shape[0])
+            axes[ft_idx].plot(x_vals, inputs[:,ft_idx], label=input_ft)
+            axes[ft_idx].title.set_text(input_ft)
+        plt.show()
         
         inputs=None
         identifiers=None
