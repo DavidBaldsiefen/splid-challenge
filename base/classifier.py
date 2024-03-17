@@ -51,7 +51,7 @@ def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type'
     fig.show()
 
 def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'],
-                         object_limit=None, only_nodes=False,
+                         object_limit=None, only_nodes=False, convolve_input_stride=True,
                          confusion_matrix=False,
                          prediction_batches=1,
                          verbose=1):
@@ -68,6 +68,7 @@ def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=[
         val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
         datasets = ds_gen.get_datasets(batch_size=512,
                                         label_features=[] if test else model_outputs,
+                                        convolve_input_stride=convolve_input_stride,
                                         overview_as_second_input=isinstance(model, list),
                                         shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
                                         with_identifier=True,
@@ -371,6 +372,7 @@ def perform_submission_pipeline(classifier_dir,
                                 split_dataframes,
                                 loc_preds,
                                 output_dirs,
+                                convolve_input_stride=True,
                                 remove_ns_during_ew_nk=False,
                                 remove_consecutive_ID_IK=False,
                                 non_transform_features=[],
@@ -419,6 +421,7 @@ def perform_submission_pipeline(classifier_dir,
 
     pred_df = create_prediction_df(ds_gen=ds_gen,
                                 model=classifier_model,
+                                convolve_input_stride=convolve_input_stride,
                                 train=False,
                                 test=True,
                                 only_nodes=False,

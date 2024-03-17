@@ -398,6 +398,8 @@ class DatasetGenerator():
                                   overview_features_std,
                                   overview_as_second_input,
                                   label_features,
+                                  oneshot_input_discretization,
+                                  oneshot_output_discretization,
                                   only_nodes,
                                   only_ew_sk,
                                   with_identifier,
@@ -420,9 +422,15 @@ class DatasetGenerator():
         # "Reserve" np arrays (this is efficient but does not actually block the memory)
         n_rows = np.sum([ln for ln in obj_lens.values()])
         n_rows = (n_rows//(stride+keep_label_stride-1)+150000) if (not only_nodes) else 15000 # consider stride with some buffer just to be sure
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        oneshot_localizer = False
+        if (('EW_Node_Location_oneshot' in label_features) or ('NS_Node_Location_oneshot' in label_features)):
+            oneshot_localizer = True
+            n_rows = len(obj_lens)
+        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)) if not oneshot_localizer else oneshot_input_discretization, len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
         inputs_overview = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [1, time, features]
-        labels = np.zeros(shape=(n_rows, len(label_features) if label_features else 1), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
+        labels = np.zeros(shape=((n_rows, len(label_features)) if not oneshot_localizer else 
+                                 (n_rows, len(label_features), oneshot_output_discretization) if label_features else 
+                                 (1,)), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
 
         if only_ew_sk:
@@ -436,7 +444,7 @@ class DatasetGenerator():
             extended_df = split_df[key]
 
             # First, add padding
-            if padding != 'none':
+            if padding != 'none' and not oneshot_localizer:
                 extended_df = split_df[key].copy()
                 # to make sure that we have as many inputs as we actually have labels, we need to add rows to the beginning of the df
                 # this is to ensure that we will later be "able" to predict the first entry in the labels (otherwise, we would need to skip n input_history_steps)
@@ -455,11 +463,11 @@ class DatasetGenerator():
             # Get the labels. This is necessary here because they may be needed for the keep_label_stride
             obj_labels = None
             obj_locations = None
-            if label_features:
+            if label_features and not oneshot_localizer:
                 new_dt = np.int32
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
                     new_dt = self._input_dtype
-                elif (('EW_Node_Location' in label_features) or ('NS_Node_Location' in label_features)):
+                elif (('EW_Node_Location' in label_features) or ('NS_Node_Location' in label_features) or oneshot_localizer):
                     new_dt = np.bool_
                 obj_labels = extended_df[label_features][input_history_steps-1:-input_future_steps].to_numpy(dtype=new_dt)
                 dirs_locs = (['EW_Node_Location'] if any('EW' in ft for ft in label_features) else []) + (['NS_Node_Location'] if any('NS' in ft for ft in label_features) else [])
@@ -482,7 +490,7 @@ class DatasetGenerator():
             obj_indices_to_keep = np.argwhere(obj_indices_to_keep==1)[:,0]
 
             # the final object length
-            strided_obj_len = len(obj_indices_to_keep)
+            strided_obj_len = len(obj_indices_to_keep) if not oneshot_localizer else 1
 
             # Add overview features based on the original, non-strided and non-padded df
             if overview_features_mean or overview_features_std:
@@ -502,13 +510,28 @@ class DatasetGenerator():
                 inputs_overview[current_row:current_row+strided_obj_len,:,len(overview_features_mean):] = std_vals
             
             # determine the inputs, labels and identifiers of the indices we want to keep
-            inputs[current_row:current_row+strided_obj_len,:,:] = (
-                np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,] if (not convolve_input_stride or input_stride==1) else
-                np.apply_along_axis(lambda m: np.convolve(np.pad(m, (input_stride//2, 0), mode='edge'), np.ones(input_stride)/input_stride, mode='valid'), axis=1, arr=np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,:,:,])[:,::input_stride,:,]
-            )
+            if not oneshot_localizer:
+                inputs[current_row:current_row+strided_obj_len,:,:] = (
+                    np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,] if (not convolve_input_stride or input_stride==1) else
+                    np.apply_along_axis(lambda m: np.convolve(np.pad(m, (input_stride//2, 0), mode='edge'), np.ones(input_stride)/input_stride, mode='valid'), axis=1, arr=np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,:,:,])[:,::input_stride,:,]
+                )
+            else:
+                input_discretization_locs = np.round(np.linspace(0, len(extended_df) - 1, oneshot_input_discretization)).astype(int)
+                discrete_stride = len(extended_df)//oneshot_input_discretization
+                inputs[current_row:current_row+strided_obj_len,:,:] = (
+                    extended_df[input_features].to_numpy(dtype=self._input_dtype)[input_discretization_locs,:,] if (not convolve_input_stride or input_stride==1) else
+                    np.apply_along_axis(lambda m: np.convolve(np.pad(m, ((discrete_stride//2)+1, 0), mode='edge'), np.ones(discrete_stride)/discrete_stride, mode='valid'), axis=0, arr=extended_df[input_features].to_numpy(dtype=self._input_dtype)[:,:,])[input_discretization_locs,:,]
+                )
 
-            labels[current_row:current_row+strided_obj_len] = obj_labels[obj_indices_to_keep] if label_features else 0.0
-            element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep,:]
+            if not oneshot_localizer:
+                labels[current_row:current_row+strided_obj_len] = obj_labels[obj_indices_to_keep] if label_features else 0.0
+            else:
+                labels[current_row:current_row+strided_obj_len,:] = extended_df[[] + (['EW_Node_Location_nb'] if 'EW_Node_Location_oneshot' in label_features else []) + (['NS_Node_Location_nb'] if 'NS_Node_Location_oneshot' in label_features else [])].to_numpy(dtype=np.float32)[np.round(np.linspace(0, len(extended_df) - 1, oneshot_output_discretization)).astype(int),:].transpose(1,0) if label_features else 0.0
+
+            if not oneshot_localizer:
+                element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep,:]
+            else:
+                element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']].to_numpy(dtype=np.float32)[0,:]
 
             if only_ew_sk:
                 ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
@@ -655,7 +678,7 @@ class DatasetGenerator():
         return datasets if len(datasets)>1 else datasets[0]
 
     def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
-                     with_identifier=False, only_nodes=False, only_ew_sk=False, overview_as_second_input=False, shuffle=True,
+                     with_identifier=False, only_nodes=False, only_ew_sk=False, overview_as_second_input=False, oneshot_input_discretization=1, oneshot_output_discretization=1, shuffle=True,
                      train_keys=None, val_keys=None, convolve_input_stride=True, stride=1, keep_label_stride=1, stride_offset=0, verbose=0):
         
         # create datasets
@@ -668,6 +691,8 @@ class DatasetGenerator():
                                                 overview_features_std=self._overview_features_std,
                                                 overview_as_second_input=overview_as_second_input,
                                                 label_features=label_features,
+                                                oneshot_input_discretization=oneshot_input_discretization,
+                                                oneshot_output_discretization=oneshot_output_discretization,
                                                 only_nodes=only_nodes,
                                                 only_ew_sk=only_ew_sk,
                                                 with_identifier=with_identifier,
@@ -690,6 +715,8 @@ class DatasetGenerator():
                                                     overview_features_std=self._overview_features_std,
                                                     overview_as_second_input=overview_as_second_input,
                                                     label_features=label_features,
+                                                    oneshot_input_discretization=oneshot_input_discretization,
+                                                    oneshot_output_discretization=oneshot_output_discretization,
                                                     only_nodes=only_nodes,
                                                     only_ew_sk=only_ew_sk,
                                                     with_identifier=with_identifier,

@@ -9,10 +9,7 @@ import copy
 
 from base import datahandler, prediction_models, evaluation, utils, classifier
 
-challenge_data_dir = Path('dataset/phase_1_v3/')
-data_dir = challenge_data_dir / "train"
-labels_dir = challenge_data_dir / 'train_labels.csv'
-split_dataframes_original = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+
 
 def parameter_sweep(config=None):
     with wandb.init(config=config):
@@ -21,7 +18,10 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        split_dataframes = copy.deepcopy(split_dataframes_original)
+        challenge_data_dir = Path('dataset/phase_1_v3/')
+        data_dir = challenge_data_dir / "train"
+        labels_dir = challenge_data_dir / 'train_labels.csv'
+        split_dataframes_original = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
         dirs=config.training['directions']
         print(f"Directions: {dirs}")
@@ -198,8 +198,7 @@ def parameter_sweep(config=None):
         # perform final evaluation
         print("Running val-evaluation:")
         pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
-                                overview_as_second_input=config.model['overview_as_second_input'],               
-                                model=model,
+                                model=model.model,
                                 train=False,
                                 test=False,
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
@@ -228,8 +227,7 @@ def parameter_sweep(config=None):
 
         print("Running train-evaluation:")
         pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
-                                overview_as_second_input=config.model['overview_as_second_input'],
-                                model=model,
+                                model=model.model,
                                 train=True,
                                 test=False,
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
@@ -320,7 +318,7 @@ sweep_configuration = {
                                                           ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [1000]}, # if 1, keep only labels
-            "input_stride" : {"values": [1]},
+            "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
@@ -335,14 +333,14 @@ sweep_configuration = {
                                           #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
                                           #[[128,7,1,1,1],[128,7,1,1,1],[64,7,2,1,1]],
                                           #[[64,6,6,1,1]],
-                                          #[[64,7,6,1,1]],
+                                          [[64,3,1,1,1]],
                                           #[[64,11,6,1,1]],
                                           #[[64,7,1,1,1],[64,7,2,1,1]],
                                           #[[128,7,1,1,1],[128,7,1,1,1],[64,14,4,1,1]],
                                           #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
                                           #[[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
-            "dense_layers" : {"values": [[96,48]]},
+            "dense_layers" : {"values": [[64,48]]},
             "lstm_layers" : {"values": [#[[32, True, 4]],
                                         #[[48, True, 4]],
                                         #[[64, True, 1]],
@@ -350,28 +348,28 @@ sweep_configuration = {
                                         #[[96, True, 6]],
                                         #[[64, True, 8, 1]],
                                         #[[64, True, 1, 8]],
-                                        [[96, True, 1, 8]],
+                                        #[[96, True, 1, 8]],
                                         [[96, True, 8, 1]],
                                         #[[128, True, 10]],
                                         ]},
             "cnn_lstm_order" : {"values" : ['lstm_cnn']},
-            "split_cnn" : {"values" : [False]},
+            "split_cnn" : {"values" : [False, True]},
             "split_dense" : {"values" : [False]},
             "split_lstm" : {"values" : [True]},
             "overview_as_second_input" : {"values" : [False]},
             "l1_reg" : {"values": [0.0]},
-            "l2_reg" : {"values": [0.00015]},
+            "l2_reg" : {"values": [0.00015, 0.0002]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [False]},
             "mixed_batchnorm_dense" : {"values": [False]},
             "mixed_batchnorm_lstm" : {"values": [False]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.15]},
-            "mixed_dropout_cnn" : {"values": [0.0]},
+            "mixed_dropout_cnn" : {"values": [0.0, 0.05, 0.1]},
             "mixed_dropout_lstm" : {"values": [0.0, 0.05, 0.1]},
             "lr_scheduler" : {"values": [[0.0035, 300, 0.9]]},
             "optimizer" : {"values": ['adam']},
-            "seed" : {"values": [69]},
+            "seed" : {"values": [42]},
             }
         },
         "training" : {

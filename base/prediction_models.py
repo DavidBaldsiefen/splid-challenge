@@ -153,7 +153,7 @@ class Dense_NN(Prediction_Model):
                  l1_reg=0.0,
                  l2_reg=0.0,
                  lr_scheduler=[],
-                 output_type='classification', # 'binary', 'regression'
+                 output_type='classification', # 'binary', 'regression', 'oneshot'
                  final_activation=None,
                  final_activation_bias_initializer=None,
                  asymmetric_loss=0.0,
@@ -162,7 +162,7 @@ class Dense_NN(Prediction_Model):
         "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
         super().__init__(seed)
 
-        assert(output_type in ['classification', 'binary', 'regression'])
+        assert(output_type in ['classification', 'binary', 'regression', 'oneshot'])
 
         # determine input shape
         in_shape_local = ds.element_spec[0]['local_in'].shape.as_list()
@@ -315,7 +315,9 @@ class Dense_NN(Prediction_Model):
         for out_idx, out_feature in enumerate(ds.element_spec[1]):
             # adapt number of neurons to match number of classes
             n_units = 16
-            if output_type == 'binary' or output_type == 'regression' or '_Location' in out_feature:
+            if output_type == 'oneshot':
+                n_units = ds.element_spec[1][out_feature].shape[1]
+            elif output_type == 'binary' or output_type == 'regression' or '_Location' in out_feature:
                 n_units = 1
             elif '_Node' in out_feature:
                 n_units = 4
@@ -361,12 +363,15 @@ class Dense_NN(Prediction_Model):
         # select losses and metrics
         loss_functions = {
             'binary' : [tf.losses.BinaryCrossentropy() for _ in range(len(ds.element_spec[1]))],
+            'oneshot' : [[AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))] if asymmetric_loss != 0.0 else
+                            [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]],
             'classification' : [tf.losses.SparseCategoricalCrossentropy() for _ in range(len(ds.element_spec[1]))],
             'regression' : [[AsymmetricMSE(alpha=asymmetric_loss) for _ in range(len(ds.element_spec[1]))] if asymmetric_loss != 0.0 else
                             [tf.losses.MeanSquaredError() for _ in range(len(ds.element_spec[1]))]]
         }
         metrics = {
             'binary' : [tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],
+            'oneshot' : ['mse'],
             'classification' : ['accuracy'],
             'regression' : ['mse'] # mae
         }

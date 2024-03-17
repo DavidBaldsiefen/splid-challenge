@@ -9,13 +9,13 @@ import gc
 
 from base import utils, datahandler, classifier, localizer
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_f4p9x922.hdf5')
-SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_f4p9x922.pkl')
+LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_z9ixhzx0.hdf5')
+SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_z9ixhzx0.pkl')
 LOCALIZER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_ipci6ghk.hdf5')
 SCALER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_ipci6ghk.pkl')
 
@@ -40,8 +40,9 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                     scaler_dir=SCALER_ADIK_DIR_EW,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    thresholds=[70.0, 65.0],
+                                                    thresholds=[45.0, 60.0],
                                                     legacy_clean_consecutives=False,
+                                                    convolve_input_stride=True,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
@@ -73,7 +74,7 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                     add_linear_timeindex=False,
                                                     input_history_steps=128,
                                                     input_future_steps=32,
-                                                    input_stride=4,
+                                                    input_stride=2,
                                                     padding='zero')
 
 # adik_subm_df_ns = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADIK_DIR_NS,
@@ -131,6 +132,7 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                     output_dirs=['EW', 'NS'],
                                                     thresholds=[40.0, 30.0],
                                                     legacy_clean_consecutives=False,
+                                                    convolve_input_stride=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
@@ -207,7 +209,8 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     scaler_dir=SCALER_CLASSIFIER_DIR,
                                                     split_dataframes=split_dataframes,
                                                     loc_preds=df_locs,
-                                                    remove_ns_during_ew_nk=True,
+                                                    convolve_input_stride=False,
+                                                    remove_ns_during_ew_nk=False,
                                                     remove_consecutive_ID_IK=False,
                                                     output_dirs=['EW', 'NS'],
                                                     non_transform_features=['Eccentricity',
