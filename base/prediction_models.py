@@ -432,7 +432,7 @@ class Dense_NN(Prediction_Model):
             if maxpool>1:
                 x = layers.MaxPool1D(maxpool, name=f'lstm_MP_{layer_idx}_{name}')(x)
             if avgpool>1:
-                x = layers.AvgPool1D(maxpool, name=f'lstm_MP_{layer_idx}_{name}')(x)
+                x = layers.AvgPool1D(avgpool, name=f'lstm_MP_{layer_idx}_{name}')(x)
             if dropout > 0.0:
                 x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'lstm_DO_{layer_idx}_{name}')(x)
         return x
