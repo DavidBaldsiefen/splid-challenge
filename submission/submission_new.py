@@ -14,13 +14,13 @@ if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_ilckpm1m.hdf5')
-SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_ilckpm1m.pkl')
+LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_1s7se45i.hdf5')
+SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/ADIK_localizer_scaler_cnn.pkl')
 LOCALIZER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_ipci6ghk.hdf5')
 SCALER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_ipci6ghk.pkl')
 
-LOCALIZER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_q7lrz8v1.hdf5')
-SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/ID_localizer_scaler_cnn.pkl')
+LOCALIZER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_s0iqsds6.hdf5')
+SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_s0iqsds6.pkl')
 
 CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_hh1tr1qp.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_hh1tr1qp.pkl')
@@ -42,7 +42,7 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                     output_dirs=['EW', 'NS'],
                                                     thresholds=[55.0],
                                                     legacy_clean_consecutives=False,
-                                                    convolve_input_stride=True,
+                                                    convolve_input_stride=False,
                                                     clean_neighbors_below_distance=-1,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
@@ -54,11 +54,11 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                                             'Latitude (deg)'],
                                                     diff_transform_features=[#'Eccentricity',
                                                                             #'Semimajor Axis (m)',
-                                                                            'Inclination (deg)',
+                                                                            #'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             #'Argument of Periapsis (deg)',
-                                                                            'True Anomaly (deg)',
-                                                                            'Longitude (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            #'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
                                                     sin_transform_features=[#'Eccentricity',
@@ -66,8 +66,8 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                                             #'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             'Argument of Periapsis (deg)',
-                                                                            #'True Anomaly (deg)',
-                                                                            #'Longitude (deg)',
+                                                                            'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
                                                     sin_cos_transform_features=[],
@@ -134,10 +134,10 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                     scaler_dir=SCALER_ID_DIR,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    thresholds=[35.0],
+                                                    thresholds=[40.0, 50.0],
                                                     legacy_clean_consecutives=False,
-                                                    convolve_input_stride=False,
-                                                    clean_neighbors_below_distance=-1,
+                                                    convolve_input_stride=True,
+                                                    clean_neighbors_below_distance=2,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
                                                                             'Inclination (deg)',
@@ -148,11 +148,11 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                                             'Latitude (deg)'],
                                                     diff_transform_features=[#'Eccentricity',
                                                                             #'Semimajor Axis (m)',
-                                                                            #'Inclination (deg)',
+                                                                            'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             #'Argument of Periapsis (deg)',
-                                                                            #'True Anomaly (deg)',
-                                                                            #'Longitude (deg)',
+                                                                            'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
                                                     sin_transform_features=[#'Eccentricity',
@@ -160,17 +160,21 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                                             #'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             'Argument of Periapsis (deg)',
-                                                                            'True Anomaly (deg)',
-                                                                            'Longitude (deg)',
+                                                                            #'True Anomaly (deg)',
+                                                                            #'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
                                                     sin_cos_transform_features=[],
-                                                    overview_features_mean=[],
-                                                    overview_features_std=[],
+                                                    overview_features_mean=[#'Longitude (sin)',
+                                                                            #'RAAN (deg)'
+                                                                            ],
+                                                    overview_features_std=['Inclination (deg)'
+                                                                            ],
                                                     add_daytime_feature=False,
                                                     add_yeartime_feature=False,
-                                                    add_linear_timeindex=False,
-                                                    input_history_steps=256,
+                                                    add_linear_timeindex=True,
+                                                    linear_timeindex_as_overview=True,
+                                                    input_history_steps=320,
                                                     input_future_steps=256,
                                                     input_stride=4,
                                                     padding='zero')
