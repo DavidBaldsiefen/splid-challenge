@@ -130,6 +130,7 @@ class DatasetGenerator():
                  add_daytime_feature=False,
                  add_yeartime_feature=False,
                  add_linear_timeindex=False,
+                 linear_timeindex_as_overview=False,
                  with_labels=True,
                  pad_location_labels=0,
                  nonbinary_padding=[],
@@ -161,6 +162,7 @@ class DatasetGenerator():
         self._seed = seed
         self._overview_features_mean=overview_features_mean
         self._overview_features_std=overview_features_std
+        self._linear_timeindex_as_overview = linear_timeindex_as_overview
 
         if verbose>0:
             print(f"=========================Creating Generator=======================\nSeed: {self._seed}")
@@ -426,8 +428,9 @@ class DatasetGenerator():
         if (('EW_Node_Location_oneshot' in label_features) or ('NS_Node_Location_oneshot' in label_features)):
             oneshot_localizer = True
             n_rows = len(obj_lens)
-        inputs = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)) if not oneshot_localizer else oneshot_input_discretization, len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
-        inputs_overview = np.zeros(shape=(n_rows, int(np.ceil(window_size/input_stride)), len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [1, time, features]
+        input_width = int(np.ceil(window_size/input_stride))
+        inputs = np.zeros(shape=(n_rows, input_width if not oneshot_localizer else oneshot_input_discretization, len(input_features)), dtype=self._input_dtype) # dimensions are [index, time, features]
+        inputs_overview = np.zeros(shape=(n_rows, input_width, len(overview_features_mean) + len(overview_features_std)), dtype=self._input_dtype) # dimensions are [1, time, features]
         labels = np.zeros(shape=((n_rows, len(label_features)) if not oneshot_localizer else 
                                  (n_rows, len(label_features), oneshot_output_discretization) if label_features else 
                                  (1,)), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
@@ -496,8 +499,8 @@ class DatasetGenerator():
             if overview_features_mean or overview_features_std:
                 # Add overview features which are identical everywhere inside on object and capture a view of the entire feature development
                 # here, intentionally do not use the extended df (we dont want padding in the overview)
-                n_segments = int(np.ceil(window_size/input_stride))
-                segment_length=len(split_df[key])//int(np.ceil(window_size/input_stride))
+                n_segments = input_width
+                segment_length=len(split_df[key])//input_width
                 object_border = (len(split_df[key])%n_segments)//2 # we have to cut off a bit on the left and right
                 
                 #mean
@@ -515,6 +518,11 @@ class DatasetGenerator():
                     np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,::input_stride,:,] if (not convolve_input_stride or input_stride==1) else
                     np.apply_along_axis(lambda m: np.convolve(np.pad(m, (input_stride//2, 0), mode='edge'), np.ones(input_stride)/input_stride, mode='valid'), axis=1, arr=np.lib.stride_tricks.sliding_window_view(extended_df[input_features].to_numpy(dtype=self._input_dtype), window_size, axis=0).transpose(0,2,1)[obj_indices_to_keep,:,:,])[:,::input_stride,:,]
                 )
+                if self._linear_timeindex_as_overview and 'LinearTimeIndex' in input_features:
+                    # places a 1 at the corresponding location that fits the overview features
+                    scaled_indices = np.arange(strided_obj_len) * (input_width/strided_obj_len)
+                    inputs[current_row:current_row+strided_obj_len,:,input_features.index('LinearTimeIndex')] = np.zeros((strided_obj_len, input_width), dtype=np.float32)
+                    inputs[np.arange(current_row,current_row+strided_obj_len),scaled_indices.astype(int),input_features.index('LinearTimeIndex')] = 1.0
             else:
                 input_discretization_locs = np.round(np.linspace(0, len(extended_df) - 1, oneshot_input_discretization)).astype(int)
                 discrete_stride = len(extended_df)//oneshot_input_discretization
