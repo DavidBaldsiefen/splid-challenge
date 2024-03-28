@@ -14,7 +14,7 @@ if DEBUG_MODE:
     from base import evaluation
     print("Warning: Running in debug-mode, disable before submitting!")
 
-LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/ADIK_localizer_cnn.hdf5')
+LOCALIZER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_1s7se45i.hdf5')
 SCALER_ADIK_DIR_EW = Path(('submission/' if DEBUG_MODE else '/') + 'models/ADIK_localizer_scaler_cnn.pkl')
 LOCALIZER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_ipci6ghk.hdf5')
 SCALER_ADIK_DIR_NS = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_ipci6ghk.pkl')
@@ -40,10 +40,10 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                     scaler_dir=SCALER_ADIK_DIR_EW,
                                                     split_dataframes=split_dataframes,
                                                     output_dirs=['EW', 'NS'],
-                                                    thresholds=[55.0],
+                                                    thresholds=[45.0, 50.0],
                                                     legacy_clean_consecutives=False,
-                                                    convolve_input_stride=False,
-                                                    clean_neighbors_below_distance=-1,
+                                                    convolve_input_stride=True,
+                                                    clean_neighbors_below_distance=2,
                                                     non_transform_features=['Eccentricity',
                                                                             'Semimajor Axis (m)',
                                                                             'Inclination (deg)',
@@ -54,16 +54,20 @@ adik_subm_df_ew = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_
                                                                             'Latitude (deg)'],
                                                     diff_transform_features=[#'Eccentricity',
                                                                             #'Semimajor Axis (m)',
-                                                                            #'Inclination (deg)',
+                                                                            'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             #'Argument of Periapsis (deg)',
-                                                                            #'True Anomaly (deg)',
-                                                                            #'Longitude (deg)',
+                                                                            'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
-                                                    sin_transform_features=['Argument of Periapsis (deg)',
-                                                                            'Longitude (deg)',
+                                                    sin_transform_features=[#'Eccentricity',
+                                                                            #'Semimajor Axis (m)',
+                                                                            #'Inclination (deg)',
+                                                                            #'RAAN (deg)',
+                                                                            'Argument of Periapsis (deg)',
                                                                             'True Anomaly (deg)',
+                                                                            'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
                                                     sin_cos_transform_features=[],
@@ -210,7 +214,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     split_dataframes=split_dataframes,
                                                     loc_preds=df_locs,
                                                     convolve_input_stride=False,
-                                                    remove_ns_during_ew_nk=False,
+                                                    remove_ns_during_ew_nk=True,
                                                     remove_consecutive_ID_IK=False,
                                                     output_dirs=['EW', 'NS'],
                                                     non_transform_features=['Eccentricity',

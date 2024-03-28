@@ -21,7 +21,7 @@ def parameter_sweep(config=None):
         challenge_data_dir = Path('dataset/phase_1_v3/')
         data_dir = challenge_data_dir / "train"
         labels_dir = challenge_data_dir / 'train_labels.csv'
-        split_dataframes_original = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+        split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
         dirs=config.training['directions']
         print(f"Directions: {dirs}")
@@ -94,6 +94,7 @@ def parameter_sweep(config=None):
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],
                                                 add_yeartime_feature=config.ds_gen['add_yeartime_feature'],
                                                 add_linear_timeindex=config.ds_gen['add_linear_timeindex'],
+                                                linear_timeindex_as_overview=config.ds_gen['linear_timeindex_as_overview'],
                                                 with_labels=True,
                                                 pad_location_labels=config.ds_gen['pad_location_labels'],
                                                 nonbinary_padding=[],
@@ -269,12 +270,12 @@ sweep_configuration = {
     "parameters": {
        "input_features" : {
             "parameters" : {
-                'Eccentricity' : {"values": [True]},
-                'Semimajor_Axis' : {"values": [True]},
+                'Eccentricity' : {"values": [False]},
+                'Semimajor_Axis' : {"values": [False]},
                 'Inclination' : {"values": [False]},
                 'RAAN' : {"values": [True]},
                 'Argument_of_Periapsis' : {"values": [False]},
-                'True_Anomaly' : {"values": [True]},
+                'True_Anomaly' : {"values": [False]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
             }
@@ -309,7 +310,8 @@ sweep_configuration = {
                                                    #['Longitude (sin)', 'RAAN (deg)', 'Eccentricity']
                                                    ]},
             'overview_features_std' : {"values" : [#[],
-                                                   ['Longitude (sin)', 'Latitude (deg)', 'Argument of Periapsis (sin)'],
+                                                   ['Longitude (sin)', 'Latitude (deg)', 'Argument of Periapsis (sin)', 'Inclination (deg)'],
+                                                   #[],
                                                    #['Longitude (sin)']
                                                    ]},
             "pad_location_labels" : {"values": [0]},
@@ -323,6 +325,7 @@ sweep_configuration = {
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [True]},
+            "linear_timeindex_as_overview" : {"values": [True, False]},
             "input_history_steps" : {"values": [32]},
             "input_future_steps" : {"values": [256]},
             }
@@ -333,7 +336,7 @@ sweep_configuration = {
                                           #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
                                           #[[128,7,1,1,1],[128,7,1,1,1],[64,7,2,1,1]],
                                           #[[64,6,6,1,1]],
-                                          [[64,3,1,1,1]],
+                                          #[[64,3,1,1,1]],
                                           #[[64,11,6,1,1]],
                                           #[[64,7,1,1,1],[64,7,2,1,1]],
                                           #[[128,7,1,1,1],[128,7,1,1,1],[64,14,4,1,1]],
@@ -353,23 +356,23 @@ sweep_configuration = {
                                         #[[128, True, 10]],
                                         ]},
             "cnn_lstm_order" : {"values" : ['lstm_cnn']},
-            "split_cnn" : {"values" : [False, True]},
+            "split_cnn" : {"values" : [False]},
             "split_dense" : {"values" : [False]},
             "split_lstm" : {"values" : [True]},
             "overview_as_second_input" : {"values" : [False]},
             "l1_reg" : {"values": [0.0]},
-            "l2_reg" : {"values": [0.00015, 0.0002]},
+            "l2_reg" : {"values": [0.00015]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [False]},
-            "mixed_batchnorm_dense" : {"values": [False]},
+            "mixed_batchnorm_dense" : {"values": [True]},
             "mixed_batchnorm_lstm" : {"values": [False]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.15]},
-            "mixed_dropout_cnn" : {"values": [0.0, 0.05, 0.1]},
-            "mixed_dropout_lstm" : {"values": [0.0, 0.05, 0.1]},
+            "mixed_dropout_cnn" : {"values": [0.0]},
+            "mixed_dropout_lstm" : {"values": [0.2]},
             "lr_scheduler" : {"values": [[0.0035, 300, 0.9]]},
             "optimizer" : {"values": ['adam']},
-            "seed" : {"values": [42]},
+            "seed" : {"values": [42,69]},
             }
         },
         "training" : {
