@@ -24,7 +24,7 @@ class Prediction_Model():
         assert(self._model is not None)
         return self._model.predict(ds, verbose=verbose)
     
-    def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, best_model_filepath='best_model.hdf5', target_metric='val_accuracy', callbacks=[], class_weight=None, plot_hist=False, verbose=1):
+    def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, target_metric='val_accuracy', callbacks=[], class_weight=None, plot_hist=False, verbose=1):
         assert(self._model is not None)
 
         callbacks=callbacks
@@ -34,22 +34,13 @@ class Prediction_Model():
             callbacks.append(keras.callbacks.EarlyStopping(monitor=target_metric,
                                            mode='auto',
                                            patience=early_stopping,
+                                           restore_best_weights=save_best_only,
                                            verbose=verbose))
-        if save_best_only:
-            callbacks.append(keras.callbacks.ModelCheckpoint(filepath=best_model_filepath,
-                                        monitor=target_metric,
-                                        save_best_only=True,
-                                        save_weights_only=True,
-                                        mode='auto',
-                                        verbose=verbose))
             
         if verbose>0:
             print(f"Starting training. Optimizing \"{target_metric}\"")
 
         self._hist = self._model.fit(train_ds, validation_data=val_ds, verbose=verbose, epochs=epochs, class_weight=class_weight, callbacks=callbacks)
-
-        if save_best_only:
-            self._model.load_weights(best_model_filepath)
 
         if verbose>0:
             print(f"Finished training after {len(self._hist.history['loss'])} epochs.")
