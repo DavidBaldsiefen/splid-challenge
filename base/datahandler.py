@@ -59,7 +59,6 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
             object_labels_NS = object_labels[object_labels['Direction'] == 'NS'].copy(deep=False)
             
             # Create 'EW' and 'NS' labels
-            # TODO: "ES"-rows are just dropped here
             object_labels_EW['EW'] = object_labels_EW['Node'] + '-' + object_labels_EW['Type']
             object_labels_EW['EW_Node'] = object_labels_EW['Node']
             object_labels_EW['EW_Type'] = object_labels_EW['Type']
@@ -318,7 +317,7 @@ class DatasetGenerator():
                     sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location'] = False
                     timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location'] == 1) & (sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)), 'TimeIndex'].to_numpy() # only considers SS if it is in nodes_to_include_as_locations
                     for timeindex in timeindices:
-                        # TODO: Using timeindex as index? this correct???
+                        # TODO: Using the timeindex instead of the actual index here works, but is not very clean
                         sub_df.loc[timeindex-pad_location_labels:timeindex+pad_location_labels, f'{dir}_Node_Location'] = True
 
         if nonbinary_padding:
@@ -332,7 +331,7 @@ class DatasetGenerator():
                 for dir in ['EW', 'NS']:
                     sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
                     # Remove nodes which should *not* be included
-                    # TODO: using the timeindex insetad of actual index here is working, but not clean at all! Only works because both are coincidentally equal...
+                    # TODO: Using the timeindex instead of the actual index here works, but is not very clean.
                     sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location_nb'] = 0.0
                     timeindices = sub_df.loc[(sub_df[f'{dir}_Node_Location_nb'] == 1) & (sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)), 'TimeIndex'].to_numpy() # only considers SS if it is in nodes_to_include_as_locations
                     for timeindex in timeindices:
@@ -476,7 +475,7 @@ class DatasetGenerator():
                 dirs_locs = (['EW_Node_Location'] if any('EW' in ft for ft in label_features) else []) + (['NS_Node_Location'] if any('NS' in ft for ft in label_features) else [])
                 if (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)):
                     dirs_locs = ['EW_Node_Location_nb', 'NS_Node_Location_nb']
-                    #dirs_locs = [ft + '_nb' for ft in dirs_locs] # TODO: try actually training with both locations
+                    #dirs_locs = [ft + '_nb' for ft in dirs_locs] # TODO: the change to aboves line improved results
                 obj_locations = extended_df[dirs_locs][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.float32)
             
             # determine which indices to keep based on stride
