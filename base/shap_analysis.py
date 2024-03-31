@@ -60,5 +60,5 @@ def plot_ft_importance_over_time(shap_values, feature_names, title_prefix=''):
         df['TIME'] = range(-shap_values.shape[1], 0)
 
         df.plot.area(x='TIME',figsize=(11, 6), cmap='viridis')
-        plt.title(title_prefix + f' Feature Importance over time (output {shap_values_name}) ')
+        plt.title(title_prefix + f' Feature Importance over time (output {shap_values_name}) (Class 0)')
         plt.show()
