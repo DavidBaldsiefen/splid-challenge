@@ -322,7 +322,7 @@ class Dense_NN(Prediction_Model):
             output = layers.Dense(units=n_units,
                                 activation=output_activation,
                                 kernel_regularizer=regularizers.L1L2(l1=l1_reg, l2=l2_reg),
-                                kernel_initializer=self.createInitializer('glorot_uniform'),
+                                kernel_initializer=self.createInitializer('glorot_uniform'), # TODO: regularizing the last layer is probably not ideal
                                 bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
                                 name=out_feature)(output_input)
             outputs.append(output)
