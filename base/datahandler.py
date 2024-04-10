@@ -121,6 +121,7 @@ class DatasetGenerator():
                  sin_transform_features=[],
                  sin_cos_transform_features=[],
                  diff_transform_features=[],
+                 legacy_diff_transform=True,
                  highpass_features=[],
                  highpass_order=20,
                  highpass_cutoff=0.8,
@@ -229,7 +230,7 @@ class DatasetGenerator():
             for ft in diff_transform_features:
                 newft = ft + ' (diff)'
                 wraparound_offset = ([180, -180] if ft == 'Longitude (deg)' else
-                                     [270, -90] if ft in ['True Anomaly (deg)'] else # Longitude should usually increase, but small decreases are possible
+                                     [270, -90] if ft in ['True Anomaly (deg)'] else # True Anomaly should usually increase, but small decreases are possible
                                      [180, -180] if ft in ['Argument of Periapsis (deg)', 'RAAN (deg)'] else
                                      [])
                 if verbose > 1:
@@ -239,7 +240,11 @@ class DatasetGenerator():
                     if wraparound_offset:
                         diff_vals[diff_vals > wraparound_offset[0]] -= 360
                         diff_vals[diff_vals < wraparound_offset[1]] += 360
-                    split_df[key][newft] = np.diff(split_df[key][ft], prepend=split_df[key][ft][0])
+                    # There was a bug here so that the wraparound did not actually end up being applied... oof
+                    if legacy_diff_transform:
+                        split_df[key][newft] = np.diff(split_df[key][ft], prepend=split_df[key][ft][0])
+                    else:
+                        split_df[key][newft] = diff_vals
                 self._input_features.append(newft)
 
         # apply highpass filter. If the data is given in (deg), a sinus transform is applied beforehand
