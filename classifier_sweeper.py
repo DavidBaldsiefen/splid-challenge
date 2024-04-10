@@ -86,6 +86,7 @@ def parameter_sweep(config=None):
                                               exclude_objects=[9, 10, 13, 19, 30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
+                                                legacy_diff_transform=config.ds_gen['legacy_diff_transform'],
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
                                                 highpass_features=highpass_features,
@@ -124,6 +125,7 @@ def parameter_sweep(config=None):
                                                label_features=[f'{dir}_Type' for dir in dirs],
                                                with_identifier=False,
                                                overview_as_second_input=config.model['overview_as_second_input'],
+                                               convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                                shuffle=True,
                                                only_nodes=True if config.ds_gen['keep_label_stride'] <= 1 else False,
                                                stride=config.ds_gen['stride'],
@@ -203,6 +205,7 @@ def parameter_sweep(config=None):
                                 train=False,
                                 test=False,
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
+                                convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                 object_limit=None,
                                 only_nodes=True,
                                 confusion_matrix=False,
@@ -232,6 +235,7 @@ def parameter_sweep(config=None):
                                 train=True,
                                 test=False,
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
+                                convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                 object_limit=None,
                                 only_nodes=True,
                                 prediction_batches=5,
@@ -251,6 +255,7 @@ def parameter_sweep(config=None):
         wandb.run.summary['train_TP'] = total_tp
         wandb.run.summary['train_FP'] = total_fp
         print(f"TRN: P: {precision:.3f} TP: {total_tp} FP: {total_fp}")
+
         
         split_dataframes = None
         ds_gen = None
@@ -270,12 +275,12 @@ sweep_configuration = {
     "parameters": {
        "input_features" : {
             "parameters" : {
-                'Eccentricity' : {"values": [False]},
-                'Semimajor_Axis' : {"values": [False]},
+                'Eccentricity' : {"values": [True]},
+                'Semimajor_Axis' : {"values": [True]},
                 'Inclination' : {"values": [False]},
                 'RAAN' : {"values": [True]},
                 'Argument_of_Periapsis' : {"values": [False]},
-                'True_Anomaly' : {"values": [False]},
+                'True_Anomaly' : {"values": [True]},
                 'Longitude' : {"values": [False]},
                 'Latitude' : {"values": [True]},
             }
@@ -298,9 +303,9 @@ sweep_configuration = {
                 'Semimajor_Axis' : {"values": ['diff']},
                 'Inclination' : {"values": ['diff']},
                 'RAAN' : {"values": ['non']},
-                'Argument_of_Periapsis' : {"values": ['sin']},
+                'Argument_of_Periapsis' : {"values": ['sin', 'diff']},
                 'True_Anomaly' : {"values": ['diff']},
-                'Longitude' : {"values": ['sin']},
+                'Longitude' : {"values": ['sin', 'diff']},
                 'Latitude' : {"values": ['non']},
             }
         },
@@ -310,7 +315,7 @@ sweep_configuration = {
                                                    #['Longitude (sin)', 'RAAN (deg)', 'Eccentricity']
                                                    ]},
             'overview_features_std' : {"values" : [#[],
-                                                   ['Longitude (sin)', 'Latitude (deg)', 'Argument of Periapsis (sin)', 'Inclination (deg)'],
+                                                   ['Longitude (sin)', 'Latitude (deg)', 'Argument of Periapsis (sin)'],
                                                    #[],
                                                    #['Longitude (sin)']
                                                    ]},
@@ -320,14 +325,16 @@ sweep_configuration = {
                                                           ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [1000]}, # if 1, keep only labels
-            "input_stride" : {"values": [2]},
+            "input_stride" : {"values": [5]},
+            "convolve_input_stride" : {"values": [True]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [True]},
-            "linear_timeindex_as_overview" : {"values": [True, False]},
+            "linear_timeindex_as_overview" : {"values": [True]},
             "input_history_steps" : {"values": [32]},
             "input_future_steps" : {"values": [256]},
+            "legacy_diff_transform" : {"values": [True, False]},
             }
         },
         "model" : {
@@ -343,7 +350,7 @@ sweep_configuration = {
                                           #[[128,9,1,2,1],[128,9,1,1,1],[64,9,3,1,1]],
                                           #[[64,16,1,2,1],[64,13,1,1,1],[48,8,1,1,1]],
                                           ]},
-            "dense_layers" : {"values": [[64,48]]},
+            "dense_layers" : {"values": [[64,32]]},
             "lstm_layers" : {"values": [#[[32, True, 4]],
                                         #[[48, True, 4]],
                                         #[[64, True, 1]],
@@ -352,7 +359,10 @@ sweep_configuration = {
                                         #[[64, True, 8, 1]],
                                         #[[64, True, 1, 8]],
                                         #[[96, True, 1, 8]],
-                                        [[96, True, 8, 1]],
+                                        #[[64, True, 6, 1]],
+                                        [[64, True, 4, 1]],
+                                        #[[64, True, 4, 1]],
+                                        #[[64, True, 3, 1]],
                                         #[[128, True, 10]],
                                         ]},
             "cnn_lstm_order" : {"values" : ['lstm_cnn']},
@@ -361,18 +371,18 @@ sweep_configuration = {
             "split_lstm" : {"values" : [True]},
             "overview_as_second_input" : {"values" : [False]},
             "l1_reg" : {"values": [0.0]},
-            "l2_reg" : {"values": [0.00015]},
+            "l2_reg" : {"values": [0.0001]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [False]},
-            "mixed_batchnorm_dense" : {"values": [True]},
+            "mixed_batchnorm_dense" : {"values": [False]},
             "mixed_batchnorm_lstm" : {"values": [False]},
             "mixed_batchnorm_before_relu" : {"values": [False]},
-            "mixed_dropout_dense" : {"values": [0.15]},
+            "mixed_dropout_dense" : {"values": [0.0]},
             "mixed_dropout_cnn" : {"values": [0.0]},
             "mixed_dropout_lstm" : {"values": [0.2]},
-            "lr_scheduler" : {"values": [[0.0035, 300, 0.9]]},
+            "lr_scheduler" : {"values": [[0.0035, 700, 0.9]]},
             "optimizer" : {"values": ['adam']},
-            "seed" : {"values": [42,69]},
+            "seed" : {"values": [42]},
             }
         },
         "training" : {
