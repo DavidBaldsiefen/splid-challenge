@@ -90,6 +90,7 @@ def parameter_sweep(config=None):
                                               exclude_objects=[30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
+                                                legacy_diff_transform=config.ds_gen['legacy_diff_transform'],
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
                                                 highpass_features=highpass_features,
@@ -103,7 +104,7 @@ def parameter_sweep(config=None):
                                                 with_labels=True,
                                                 pad_location_labels=config.ds_gen['pad_location_labels'],
                                                 nonbinary_padding=config.ds_gen['nonbinary_padding'],
-                                                train_val_split=0.9,
+                                                train_val_split=0.95,
                                                 input_stride=config.ds_gen['input_stride'],
                                                 padding='zero', #!
                                                 scale=True,
@@ -240,8 +241,8 @@ def parameter_sweep(config=None):
         wandb.run.summary['best_F2_threshold'] = best_f2_threshold
         wandb.run.summary['best_F2_step'] = best_f2_step
 
-        train_object_limit = 50
-        n_batches = 3
+        train_object_limit = 200
+        n_batches = 4
         print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches) with threshold {60.0}:")
         evaluation_results_t = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
@@ -307,24 +308,27 @@ sweep_configuration = {
         "ds_gen" : {
             "parameters" : {
             'overview_features_mean' : {"values" : [[]]},
-            'overview_features_std' : {"values" : [['Inclination (deg)'], []]},
+            'overview_features_std' : {"values" : [#['Inclination (deg)'], 
+                                                   []
+                                                   ]},
             "pad_location_labels" : {"values": [0]},
             "nonbinary_padding" : {"values": [
                                               [110.0, 70.0, 49.0, 34.0, 24.0, 12.0], # TODO: try wide padding with very low values
-                                              [11.0, 7.0, 4.9, 3.4, 2.4, 1.2]
+                                              #[11.0, 7.0, 4.9, 3.4, 2.4, 1.2]
                                               ]},
-            "input_stride" : {"values": [4]},
+            "input_stride" : {"values": [2,3,4]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
-            "add_linear_timeindex" : {"values": [True]},
-            "linear_timeindex_as_overview" : {"values": [True, False]},
+            "add_linear_timeindex" : {"values": [False]},
+            "linear_timeindex_as_overview" : {"values": [True]},
             "convolve_input_stride" : {"values": [True]},
-            "class_multiplier_ID" : {"values": [1.0]},
-            "class_multiplier_IK" : {"values": [0.0]},
-            "class_multiplier_AD" : {"values": [0.0]},
-            "input_history_steps" : {"values": [320]},
-            "input_future_steps" : {"values": [256]},
+            "legacy_diff_transform" : {"values": [True, False]},
+            "class_multiplier_ID" : {"values": [0.0]},
+            "class_multiplier_IK" : {"values": [1.0]},
+            "class_multiplier_AD" : {"values": [1.0]},
+            "input_history_steps" : {"values": [128]},
+            "input_future_steps" : {"values": [32]},
             }
         },
         "model" : {
@@ -333,12 +337,12 @@ sweep_configuration = {
                                           #[[64,11,1,1,1],[64,11,1,1,1],[48,11,2,1,1]],
                                           #[[64,9,1,1,1],[64,9,1,1,1],[48,9,2,1,1]],
                                           #[[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
-                                          #[[48,7,1,1,1],[48,7,2,1,1]],
+                                          [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
                                           #[[64,7,1,1,1],[64,7,1,1,1],[48,7,1,1,1]],
                                           #[[64,13,12,1,1]],
                                           #[[64,23,20,1,1]],
-                                          [[64,7,2,1,1],[64,7,3,1,1]],
-                                          [[64,6,2,1,1]],
+                                          #[[64,7,2,1,1],[64,7,3,1,1]],
+                                          #[[64,6,2,1,1]],
                                           #[[64,7,6,1,1]],
                                           #[[64,15,6,1,1]],
                                           #[[64,13,12,1,1]],
@@ -348,11 +352,11 @@ sweep_configuration = {
                                           #[[48,8,3,1,1],[48,4,1,1,1],[48,3,1,1,1]],
                                           #[[48,4,1,1,1],[48,4,2,1,1],[48,3,1,1,1]],
                                           ]},
-            "dense_layers" : {"values": [[48,24]]},
+            "dense_layers" : {"values": [[64,32]]},
             "lstm_layers" : {"values": [#[[48, True, 2, 1]],
                                         #[[32, True, 4, 1]],
                                         #[[96, True, 1, 1]],
-                                        [[64, True, 1, 1]],
+                                        #[[64, True, 1, 1]],
                                         #[[48, True, 1, 1]],
                                         #[[128, True, 2, 1]],
                                         []
@@ -361,7 +365,7 @@ sweep_configuration = {
             "split_cnn" : {"values" : [True]},
             "split_dense" : {"values" : [False]},
             "split_lstm" : {"values" : [True]},
-            "l2_reg" : {"values": [0.00012]},
+            "l2_reg" : {"values": [0.00025]},
             "input_dropout" : {"values": [0.0]},
             "mixed_batchnorm_cnn" : {"values": [True]},
             "mixed_batchnorm_dense" : {"values": [True]},
@@ -370,9 +374,9 @@ sweep_configuration = {
             "mixed_dropout_dense" : {"values": [0.05]},
             "mixed_dropout_cnn" : {"values": [0.05]},
             "mixed_dropout_lstm" : {"values": [0.0]},
-            "lr_scheduler" : {"values": [#[0.005],
+            "lr_scheduler" : {"values": [[0.005],
                                          #[0.001],
-                                         [0.005, 2000, 0.9],
+                                         #[0.005, 2000, 0.9],
                                          #[0.002, 2000, 0.9],
                                          #[0.005, 1000, 0.9]
                                          ]},
@@ -391,11 +395,11 @@ sweep_configuration = {
                                     #[[5,1,True,80]],
                                     #[[4,0,True,50],[4,3,True,50]],
                                     #[[6,0,True,50],[6,3,True,50]],
-                                    [[5,0,True,40],[5,3,True,40]],
+                                    [[5,0,True,45],[5,3,True,45]],
                                     #[[4,0,True,28],[4,1,True,28],[4,2,True,28]],
                                     ]
                                 },
-            "nodes_to_consider" : {"values": [['ID']]
+            "nodes_to_consider" : {"values": [['AD', 'IK']]
                                 },
             "batch_size" : {"values": [2048]},
             "directions" : {"values" : [['EW', 'NS'],
