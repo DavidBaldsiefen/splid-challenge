@@ -112,8 +112,8 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
 
 class DatasetGenerator():
     def __init__(self,
-                 train_val_df,
-                 test_df=None,
+                 train_val_df_dict,
+                 test_df_dict=None,
                  exclude_objects=[], # option to exclude certain objects (after the train-val split has been performed) which may be erronous
                  input_history_steps=10, # how many history timesteps we get as input, including the current one
                  input_future_steps=0, # how many future timesteps we get as input
@@ -150,9 +150,6 @@ class DatasetGenerator():
                  seed=42,
                  deepcopy=True):
 
-        combined_df = copy.deepcopy(train_val_df) if deepcopy else train_val_df # The deepcopy helps prevent very pythonic bugs, but obiously costs performance
-
-
         self._input_features=non_transform_features
         self._with_labels=with_labels
         self._input_history_steps = input_history_steps
@@ -167,25 +164,35 @@ class DatasetGenerator():
 
         if verbose>0:
             print(f"=========================Creating Generator=======================\nSeed: {self._seed}")
-        
+
         # create the train and val split
-        keys_list = list(combined_df.keys())
+        keys_list = list(train_val_df_dict.keys())
         keys_list.sort() # first, sort the list - this ensures that it doesn't matter where the keys are coming from (they will be sorted strangely as theyre strings)
         if shuffle_train_val:
             random.Random(self._seed).shuffle(keys_list) # shuffle, but with a seed for reproducability
         split_idx = int(len(keys_list) * train_val_split)
         self._train_keys = keys_list[:split_idx]
         self._val_keys = keys_list[split_idx:]
+        self._test_keys = list(test_df_dict.keys()) if test_df_dict is not None else []
 
+        # merge the test dataset, if it exists
+        # The deepcopy helps prevent very pythonic bugs, but obiously costs performance
+        train_val_df_dict = copy.deepcopy(train_val_df_dict) if deepcopy else train_val_df_dict
+        combined_df_dict = train_val_df_dict
+        if test_df_dict is not None:
+            test_df_dict = copy.deepcopy(test_df_dict) if deepcopy else test_df_dict
+            combined_df_dict.update(test_df_dict)
+        
         # exclude certain objects, e.g. if it is known that they are erronous
         if exclude_objects:
             self._train_keys = [key for key in self._train_keys if not (int(key) in exclude_objects)]
             self._val_keys = [key for key in self._val_keys if not (int(key) in exclude_objects)]
+            self._test_keys = [key for key in self._test_keys if not (int(key) in exclude_objects)]
             for key in exclude_objects:
-                combined_df.pop(str(key), None)
+                combined_df_dict.pop(str(key), None)
 
         if verbose>0:
-            print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} ({len(self._train_keys)/len(keys_list):.2f})")
+            print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} nTest: {len(self._test_keys)} (train-val-split: {len(self._train_keys)/len(keys_list):.2f})")
             print(f"Padding: {self._padding}")
             print(f"Horizons: {self._input_history_steps}-{self._input_future_steps} @ stride {self._input_stride}")
             print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
@@ -195,21 +202,21 @@ class DatasetGenerator():
         # Make sure all node labels within the validation set are also in the train set
         train_labels_EW, train_labels_NS, val_labels_EW, val_labels_NS = [], [], [], []
         for key in self._train_keys:
-            train_labels_EW += list(combined_df[key]['EW'].unique())
-            train_labels_NS += list(combined_df[key]['NS'].unique())
-        for key in self._val_keys:
-            val_labels_EW += list(combined_df[key]['EW'].unique())
-            val_labels_NS += list(combined_df[key]['NS'].unique())
+            train_labels_EW += list(combined_df_dict[key]['EW'].unique())
+            train_labels_NS += list(combined_df_dict[key]['NS'].unique())
+        for key in self._val_keys + self._test_keys:
+            val_labels_EW += list(combined_df_dict[key]['EW'].unique())
+            val_labels_NS += list(combined_df_dict[key]['NS'].unique())
         if not (all(x in set(train_labels_EW) for x in set(val_labels_EW)) and all(x in set(train_labels_NS) for x in set(val_labels_NS))):
-            print("Warning: Validation set contains labels which do not occur in training set! Maybe try different seed?")
+            print("Warning: Validation and/or Test set contain labels which do not occur in training set! Maybe try different seed?")
 
         # Legacy: some objects used to be in the wrong value ranges
         if unify_value_ranges:
             if verbose > 0:
                 print(f"Limiting True Anomaly to [0.0, 360.0] and Longitude to [-180.0, 180.0]")
-            for key in self._train_keys + self._val_keys:
-                combined_df[key].loc[combined_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] = combined_df[key].loc[combined_df[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] + 360.0
-                combined_df[key].loc[combined_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] = combined_df[key].loc[combined_df[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] - 360.0
+            for key in self._train_keys + self._val_keys + self._test_keys:
+                combined_df_dict[key].loc[combined_df_dict[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] = combined_df_dict[key].loc[combined_df_dict[key]['True Anomaly (deg)'] < 0.0, 'True Anomaly (deg)'] + 360.0
+                combined_df_dict[key].loc[combined_df_dict[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] = combined_df_dict[key].loc[combined_df_dict[key]['Longitude (deg)'] > 180.0, 'Longitude (deg)'] - 360.0
 
         # Run sin+cos transformation on [deg] fields, to remove discontinuities at 0/360deg
         if verbose > 0:
@@ -218,9 +225,9 @@ class DatasetGenerator():
         for ft in ['Inclination (deg)', 'RAAN (deg)', 'Argument of Periapsis (deg)', 'True Anomaly (deg)', 'Latitude (deg)', 'Longitude (deg)']:
             newft_sin = ft[:-5] + '(sin)'
             newft_cos = ft[:-5] + '(cos)'
-            for key in self._train_keys + self._val_keys:
-                    combined_df[key][newft_sin] = np.sin(np.deg2rad(combined_df[key][ft]))
-                    combined_df[key][newft_cos] = np.cos(np.deg2rad(combined_df[key][ft]))
+            for key in self._train_keys + self._val_keys + self._test_keys:
+                    combined_df_dict[key][newft_sin] = np.sin(np.deg2rad(combined_df_dict[key][ft]))
+                    combined_df_dict[key][newft_cos] = np.cos(np.deg2rad(combined_df_dict[key][ft]))
             if ft in sin_transform_features:
                 self._input_features.append(newft_sin)
             if ft in sin_cos_transform_features:
@@ -236,16 +243,16 @@ class DatasetGenerator():
                                      [])
                 if verbose > 1:
                     print(f"Wraparound offset for ft {ft}: {wraparound_offset}")
-                for key in self._train_keys + self._val_keys:
-                    diff_vals = np.diff(combined_df[key][ft], prepend=combined_df[key][ft][0])
+                for key in self._train_keys + self._val_keys + self._test_keys:
+                    diff_vals = np.diff(combined_df_dict[key][ft], prepend=combined_df_dict[key][ft][0])
                     if wraparound_offset:
                         diff_vals[diff_vals > wraparound_offset[0]] -= 360
                         diff_vals[diff_vals < wraparound_offset[1]] += 360
                     # There was a bug here so that the wraparound did not actually end up being applied... oof
                     if legacy_diff_transform:
-                        combined_df[key][newft] = np.diff(combined_df[key][ft], prepend=combined_df[key][ft][0])
+                        combined_df_dict[key][newft] = np.diff(combined_df_dict[key][ft], prepend=combined_df_dict[key][ft][0])
                     else:
-                        combined_df[key][newft] = diff_vals
+                        combined_df_dict[key][newft] = diff_vals
                 self._input_features.append(newft)
 
         # apply highpass filter. If the data is given in (deg), a sinus transform is applied beforehand
@@ -260,21 +267,21 @@ class DatasetGenerator():
             
             for ft in lowpass_features:
                 newft = ft + '(highpass)'
-                for key in self._train_keys + self._val_keys:
-                    combined_df[key][newft] = butter_lowpass_filter(np.sin(np.deg2rad(combined_df[key][ft])) if 'deg' in ft else combined_df[key][ft], cutoff=lowpass_filter_cutoff_frequency, fs=12.0, order=lowpass_filter_order)
+                for key in self._train_keys + self._val_keys + self._test_keys:
+                    combined_df_dict[key][newft] = butter_lowpass_filter(np.sin(np.deg2rad(combined_df_dict[key][ft])) if 'deg' in ft else combined_df_dict[key][ft], cutoff=lowpass_filter_cutoff_frequency, fs=12.0, order=lowpass_filter_order)
                 self._input_features.append(newft)
 
         # add a sine&cosine wave that encode the daytime
         if add_daytime_feature:
             if verbose>0:
                 print("Adding daytime features.")
-            for key in self._train_keys + self._val_keys:
-                combined_df[key]['Datetime'] = pd.to_datetime(combined_df[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
-                combined_df[key]['Epoch'] = (combined_df[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
+            for key in self._train_keys + self._val_keys + self._test_keys:
+                combined_df_dict[key]['Datetime'] = pd.to_datetime(combined_df_dict[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
+                combined_df_dict[key]['Epoch'] = (combined_df_dict[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
                 siderial_day = 86164 # seconds in a sidereal day
-                combined_df[key]['Epoch Day (sin)'] = np.sin((2*np.pi*combined_df[key]['Epoch'])/siderial_day)
-                combined_df[key]['Epoch Day (cos)'] = np.cos((2*np.pi*combined_df[key]['Epoch'])/siderial_day)
-                combined_df[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
+                combined_df_dict[key]['Epoch Day (sin)'] = np.sin((2*np.pi*combined_df_dict[key]['Epoch'])/siderial_day)
+                combined_df_dict[key]['Epoch Day (cos)'] = np.cos((2*np.pi*combined_df_dict[key]['Epoch'])/siderial_day)
+                combined_df_dict[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
             self._input_features.append('Epoch Day (sin)')
             self._input_features.append('Epoch Day (cos)')
 
@@ -282,13 +289,13 @@ class DatasetGenerator():
         if add_yeartime_feature:
             if verbose>0:
                 print("Adding yeartime features.")
-            for key in self._train_keys + self._val_keys:
-                combined_df[key]['Datetime'] = pd.to_datetime(combined_df[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
-                combined_df[key]['Epoch'] = (combined_df[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
+            for key in self._train_keys + self._val_keys + self._test_keys:
+                combined_df_dict[key]['Datetime'] = pd.to_datetime(combined_df_dict[key]['Timestamp'], format='%Y-%m-%d %H:%M:%S.%fZ', utc=True)
+                combined_df_dict[key]['Epoch'] = (combined_df_dict[key]['Datetime'] - datetime(1970,1,1, tzinfo=timezone.utc)).dt.total_seconds()
                 seconds_per_siderial_year = 86400 * 365.24 # seconds in a sidereal year
-                combined_df[key]['Epoch Year Fraction (sin)'] = np.sin((2*np.pi*combined_df[key]['Epoch'])/seconds_per_siderial_year)
-                combined_df[key]['Epoch Year Fraction (cos)'] = np.cos((2*np.pi*combined_df[key]['Epoch'])/seconds_per_siderial_year)
-                combined_df[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
+                combined_df_dict[key]['Epoch Year Fraction (sin)'] = np.sin((2*np.pi*combined_df_dict[key]['Epoch'])/seconds_per_siderial_year)
+                combined_df_dict[key]['Epoch Year Fraction (cos)'] = np.cos((2*np.pi*combined_df_dict[key]['Epoch'])/seconds_per_siderial_year)
+                combined_df_dict[key].drop(columns=['Datetime', 'Epoch'], inplace=True)
             self._input_features.append('Epoch Year Fraction (sin)')
             self._input_features.append('Epoch Year Fraction (cos)')
 
@@ -296,8 +303,8 @@ class DatasetGenerator():
         if add_linear_timeindex:
             if verbose>0:
                 print("Adding linear timeindex.")
-            for key in self._train_keys + self._val_keys:
-                combined_df[key]['LinearTimeIndex'] = np.linspace(-1.0, 1.0, len(combined_df[key]))
+            for key in self._train_keys + self._val_keys + self._test_keys:
+                combined_df_dict[key]['LinearTimeIndex'] = np.linspace(-1.0, 1.0, len(combined_df_dict[key]))
             self._input_features.append('LinearTimeIndex')
 
         #perform scaling - fit the scaler on the train data, and then scale all datasets
@@ -307,20 +314,20 @@ class DatasetGenerator():
             if verbose>1:
                 print("Scaling now.")
             if per_object_scaling:
-                for key in self._train_keys + self._val_keys:
-                    combined_df[key][scaler_features] = StandardScaler().fit_transform(combined_df[key][scaler_features].values)
+                for key in self._train_keys + self._val_keys + self._test_keys:
+                    combined_df_dict[key][scaler_features] = StandardScaler().fit_transform(combined_df_dict[key][scaler_features].values)
             else:
-                concatenated_train_df = pd.concat([combined_df[k] for k in self._train_keys], ignore_index=True)
+                concatenated_train_df = pd.concat([combined_df_dict[k] for k in self._train_keys], ignore_index=True)
                 scaler = StandardScaler().fit(concatenated_train_df[scaler_features].values) if custom_scaler is None else custom_scaler
                 self._scaler = scaler
-                for key in self._train_keys + self._val_keys:
-                    combined_df[key][scaler_features] = scaler.transform(combined_df[key][scaler_features].values)
+                for key in self._train_keys + self._val_keys + self._test_keys:
+                    combined_df_dict[key][scaler_features] = scaler.transform(combined_df_dict[key][scaler_features].values)
 
         # pad the location labels, making them "wider" [intended for binary classification]
         if pad_location_labels>0 and with_labels:
             if verbose > 0:
                 print(f"Padding node locations ({pad_location_labels})")
-            for key, sub_df in combined_df.items():
+            for key, sub_df in combined_df_dict.items():
                 for dir in ['EW', 'NS']:
                     # Remove nodes which should *not* be included
                     sub_df.loc[(sub_df[f'{dir}_Node'].isin(nodes_to_include_as_locations)==False), f'{dir}_Node_Location'] = False
@@ -337,7 +344,7 @@ class DatasetGenerator():
             pad_len = len(nonbinary_padding)-1
             if verbose > 0:
                 print(f"Padding node locations in non-binary fashion ({pad_extended})")
-            for key, sub_df in combined_df.items():
+            for key, sub_df in combined_df_dict.items():
                 for dir in ['EW', 'NS']:
                     sub_df[f'{dir}_Node_Location_nb'] = sub_df[f'{dir}_Node_Location'].astype(np.float32)
                     # TODO: Using the timeindex instead of the actual index here works, but is not very clean.
@@ -360,7 +367,7 @@ class DatasetGenerator():
         self._type_label_encoder = LabelEncoder().fit(possible_type_labels)
         self._combined_label_encoder = LabelEncoder().fit(possible_combined_labels)
         if with_labels:
-            for key, sub_df in combined_df.items():
+            for key, sub_df in combined_df_dict.items():
                 sub_df['EW_Node'] = self._node_label_encoder.transform(sub_df['EW_Node'])
                 sub_df['NS_Node'] = self._node_label_encoder.transform(sub_df['NS_Node'])
                 sub_df['EW_Type'] = self._type_label_encoder.transform(sub_df['EW_Type'])
@@ -382,16 +389,16 @@ class DatasetGenerator():
         columns_to_keep = ['ObjectID', 'TimeIndex'] + input_cols + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
                                                    'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location'] if with_labels else [])
         columns_to_keep = list(dict.fromkeys(columns_to_keep)) # remove duplicates
-        columns_to_remove = [item for item in combined_df[self._train_keys[0]].columns if item not in columns_to_keep]
+        columns_to_remove = [item for item in combined_df_dict[self._train_keys[0]].columns if item not in columns_to_keep]
         if verbose>1:
                 print(f"Dropping {len(columns_to_remove)} unused columns now.")
-        self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in combined_df.items()}
+        self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in combined_df_dict.items()}
         
         # change dtypes in the dataframes
         for key, value in self._preprocessed_dataframes.items():
             value[input_cols] = value[input_cols].astype(input_dtype)
 
-        combined_df = None #remove reference to possibly save memory
+        combined_df_dict = None #remove reference to possibly save memory
 
         self._input_feature_indices = {name:i for i, name in enumerate(self._input_features)}
         if verbose > 0:

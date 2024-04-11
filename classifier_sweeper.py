@@ -82,7 +82,7 @@ def parameter_sweep(config=None):
             elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
         
-        ds_gen = datahandler.DatasetGenerator(train_val_df=split_dataframes,
+        ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,
                                               exclude_objects=[9, 10, 13, 19, 30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,

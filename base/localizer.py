@@ -282,7 +282,7 @@ def perform_submission_pipeline(localizer_dir,
     print(f"Predicting locations using model \"{localizer_dir}\" and scaler \"{scaler_dir}\"")
 
     scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
-    ds_gen = datahandler.DatasetGenerator(train_val_df=split_dataframes,
+    ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,
                                             non_transform_features=non_transform_features,
                                             diff_transform_features=diff_transform_features,
                                             legacy_diff_transform=legacy_diff_transform,
