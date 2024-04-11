@@ -30,9 +30,9 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        challenge_data_dir = Path('dataset/phase_1_v3/')
-        data_dir_train_val = challenge_data_dir / "train"
-        data_dir_test = challenge_data_dir / "train"
+        challenge_data_dir = Path('dataset/phase_2/')
+        data_dir_train_val = challenge_data_dir / "training"
+        data_dir_test = challenge_data_dir / "test"
         labels_dir_train_val = challenge_data_dir / 'train_labels.csv'
         labels_dir_test = challenge_data_dir / 'test_labels.csv'
         split_dataframes_train_val = datahandler.load_and_prepare_dataframes(data_dir_train_val, labels_dir_train_val)
@@ -117,7 +117,7 @@ def parameter_sweep(config=None):
                                                 node_class_multipliers={'ID':config.ds_gen['class_multiplier_ID'],
                                                                         'IK':config.ds_gen['class_multiplier_IK'],
                                                                         'AD':config.ds_gen['class_multiplier_AD'],
-                                                                        'SS':1.0},
+                                                                        'SS':0.0},
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,

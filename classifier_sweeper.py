@@ -18,8 +18,8 @@ def parameter_sweep(config=None):
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
-        challenge_data_dir = Path('dataset/phase_1_v3/')
-        data_dir = challenge_data_dir / "train"
+        challenge_data_dir = Path('dataset/phase_2/')
+        data_dir = challenge_data_dir / "training"
         labels_dir = challenge_data_dir / 'train_labels.csv'
         split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
 
