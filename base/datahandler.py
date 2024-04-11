@@ -53,6 +53,9 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
         # find all labels associated with the object
         if labels_dir is not None:
             object_labels = labels.loc[labels['ObjectID'] == object_id]
+            if len(object_labels)==0 or not('EW' in list(object_labels['Direction'].unique()) and 'NS' in list(object_labels['Direction'].unique())):
+                print(f"Warning: no labels found for object {object_id} (or just for one direciton). Skipping object.")
+                continue
 
             # Separate the 'EW' and 'NS' types in the ground truth
             object_labels_EW = object_labels[object_labels['Direction'] == 'EW'].copy(deep=False)
