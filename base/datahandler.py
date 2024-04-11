@@ -255,10 +255,10 @@ class DatasetGenerator():
                         combined_df_dict[key][newft] = diff_vals
                 self._input_features.append(newft)
 
-        # apply highpass filter. If the data is given in (deg), a sinus transform is applied beforehand
+        # apply lowpass filter. If the data is given in (deg), a sinus transform is applied beforehand
         if lowpass_features:
             if verbose>0:
-                print(f"Applying highpass filter of order {lowpass_filter_order} at cutoff frequency {lowpass_filter_cutoff_frequency} (1hz=24h) to features {lowpass_features}")
+                print(f"Applying lowpass filter of order {lowpass_filter_order} at cutoff frequency {lowpass_filter_cutoff_frequency} (1hz=24h) to features {lowpass_features}")
 
             def butter_lowpass_filter(data, cutoff, fs, order):
                 b, a = butter(order, cutoff, fs=fs, btype='lowpass', analog=False)
@@ -266,7 +266,7 @@ class DatasetGenerator():
                 return y
             
             for ft in lowpass_features:
-                newft = ft + '(highpass)'
+                newft = ft + '(lowpass)'
                 for key in self._train_keys + self._val_keys + self._test_keys:
                     combined_df_dict[key][newft] = butter_lowpass_filter(np.sin(np.deg2rad(combined_df_dict[key][ft])) if 'deg' in ft else combined_df_dict[key][ft], cutoff=lowpass_filter_cutoff_frequency, fs=12.0, order=lowpass_filter_order)
                 self._input_features.append(newft)

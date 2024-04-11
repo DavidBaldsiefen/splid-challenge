@@ -42,7 +42,7 @@ def parameter_sweep(config=None):
         utils.set_random_seed(42)
 
         non_transform_features =[]
-        highpass_features = []
+        lowpass_features = []
         diff_transform_features=[]
         sin_transform_features = []
         sin_cos_transform_features = []
@@ -61,7 +61,7 @@ def parameter_sweep(config=None):
             if value == True:
                 non_transform_features += [ft_name]
 
-        for key, value in config.highpass_features.items():
+        for key, value in config.lowpass_features.items():
             ft_name = key
             if key == 'Eccentricity': ft_name = 'Eccentricity'
             elif key == 'Semimajor_Axis': ft_name = 'Semimajor Axis (m)'
@@ -73,8 +73,8 @@ def parameter_sweep(config=None):
             elif key == 'Latitude': ft_name = 'Latitude (deg)'
             else: print(f"WARNING! UNKNOWN INPUT FEATURE KEY: {key}")
             if value == True:
-                print(f"Replacing normal ft with highpass: {ft_name}")
-                highpass_features += [ft_name]
+                print(f"Replacing normal ft with lowpass: {ft_name}")
+                lowpass_features += [ft_name]
                 if ft_name in non_transform_features:
                     non_transform_features.remove(ft_name)
 
@@ -93,7 +93,7 @@ def parameter_sweep(config=None):
                                                 legacy_diff_transform=config.ds_gen['legacy_diff_transform'],
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
-                                                lowpass_features=highpass_features,
+                                                lowpass_features=lowpass_features,
                                                 lowpass_filter_order=15,
                                                 overview_features_mean=config.ds_gen['overview_features_mean'],
                                                 overview_features_std=config.ds_gen['overview_features_std'],
@@ -283,7 +283,7 @@ sweep_configuration = {
                 'Latitude' : {"values": [True]},
             }
         },
-        "highpass_features" : {
+        "lowpass_features" : {
             "parameters" : {
                 'Eccentricity' : {"values": [False]},
                 'Semimajor_Axis' : {"values": [False]},
