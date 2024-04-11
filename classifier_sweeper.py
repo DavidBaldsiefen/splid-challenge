@@ -121,7 +121,7 @@ def parameter_sweep(config=None):
         print('Val-keys:', ds_gen.val_keys[:10])
         
 
-        train_ds, val_ds = ds_gen.get_datasets(batch_size=config.training['batch_size'],
+        datasets = ds_gen.get_datasets(batch_size=config.training['batch_size'],
                                                label_features=[f'{dir}_Type' for dir in dirs],
                                                with_identifier=False,
                                                overview_as_second_input=config.model['overview_as_second_input'],
@@ -133,9 +133,9 @@ def parameter_sweep(config=None):
                                                stride_offset=0 if config.ds_gen['keep_label_stride'] <= 1 else 250,
                                                verbose=0)
         
-        print(train_ds.element_spec)
+        print(datasets['val'].element_spec)
 
-        model = prediction_models.Dense_NN(val_ds, 
+        model = prediction_models.Dense_NN(datasets['val'], 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
                                            lstm_layers=config.model['lstm_layers'],
@@ -169,8 +169,8 @@ def parameter_sweep(config=None):
         # val_ds = val_ds.map(lambda x,y:(x,y[f'NS_Type']))
 
         # train
-        hist = model.fit(train_ds,
-                         val_ds=val_ds,
+        hist = model.fit(datasets['train'],
+                         val_ds=datasets['val'],
                          epochs=500,
                          plot_hist=False,
                          early_stopping=69,
@@ -191,10 +191,8 @@ def parameter_sweep(config=None):
             wandb.save(scaler_path)
             print(f"Scaler means & scale: {ds_gen.scaler.mean_} {ds_gen.scaler.scale_}")
 
-        train_ds = None
-        val_ds = None
-        del train_ds
-        del val_ds
+        datasets = None
+        del datasets
 
         # ====================================Evaluation===================================================
 
@@ -202,14 +200,13 @@ def parameter_sweep(config=None):
         print("Running val-evaluation:")
         pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 model=model.model,
-                                train=False,
-                                test=False,
+                                ds_type='val',
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
                                 convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                 object_limit=None,
                                 only_nodes=True,
                                 confusion_matrix=False,
-                                prediction_batches=4,
+                                prediction_batch_size=128,
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
@@ -232,13 +229,12 @@ def parameter_sweep(config=None):
         print("Running train-evaluation:")
         pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
                                 model=model.model,
-                                train=True,
-                                test=False,
+                                ds_type='train',
                                 model_outputs=[f'{dir}_Type' for dir in dirs],
                                 convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                 object_limit=None,
                                 only_nodes=True,
-                                prediction_batches=5,
+                                prediction_batch_size=128,
                                 verbose=2)
         ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')

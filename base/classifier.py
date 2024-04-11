@@ -50,41 +50,52 @@ def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type'
             axes.set_ylabel('Label')
     fig.show()
 
-def create_prediction_df(ds_gen, model, train=False, test=False, model_outputs=['EW_Type', 'NS_Type'],
-                         object_limit=None, only_nodes=False, convolve_input_stride=True,
+def create_prediction_df(ds_gen, model,
+                         ds_type='train',
+                         model_outputs=['EW_Type', 'NS_Type'],
+                         object_limit=None,
+                         only_nodes=False,
+                         convolve_input_stride=True,
                          confusion_matrix=False,
-                         prediction_batches=1,
+                         ds_batch_size=512,
+                         prediction_batch_size=128, # number of objects to predict at a time
                          verbose=1):
-    
+    if ds_type=='test' and object_limit is not None:
+        print("Warning: Object limit applied on test set - intentional?")
+
     all_identifiers = []
     all_predictions = []
     
-    all_train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
-    train_batch_size = int(np.ceil(len(all_train_keys)/prediction_batches))
-    all_val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
-    val_batch_size = int(np.ceil(len(all_val_keys)/prediction_batches))
-    for batch_idx in range(prediction_batches):
-        train_keys = all_train_keys[batch_idx*train_batch_size:batch_idx*train_batch_size+train_batch_size]
-        val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
-        datasets = ds_gen.get_datasets(batch_size=512,
-                                        label_features=[] if test else model_outputs,
+    # Perform additional batching - this reduces the memory load on slowwww computers
+    all_keys = (ds_gen.train_keys if ds_type=='train' else
+               (ds_gen.val_keys if ds_type=='val' else
+                ds_gen.test_keys))
+    all_keys = all_keys[:(len(all_keys) if object_limit is None else object_limit)]
+    n_prediction_batches = int(np.ceil(len(all_keys)/prediction_batch_size))
+    for batch_idx in range(n_prediction_batches):
+
+        ds_keys = all_keys[batch_idx*prediction_batch_size:batch_idx*prediction_batch_size+prediction_batch_size]
+
+        datasets = ds_gen.get_datasets(batch_size=ds_batch_size,
+                                        label_features=[],
                                         convolve_input_stride=convolve_input_stride,
                                         overview_as_second_input=isinstance(model, list),
-                                        shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+                                        shuffle=False,
                                         with_identifier=True,
-                                        train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
-                                        val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
+                                        train_keys=ds_keys if ds_type=='train' else [], # do not even create any of the datasets we are not interested in, in order to save memory
+                                        val_keys=ds_keys if ds_type=='val' else [],
+                                        test_keys=ds_keys if ds_type=='test' else [],
                                         only_nodes=only_nodes,
                                         stride=1)
-        ds = (datasets[0] if train else datasets[1]) if not test else datasets
+        ds = datasets[ds_type]
 
-        identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()]) if test else np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
+        identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
-        # get predictions
+        # get predictions - ensure compatibility with multi-input models
         if not isinstance(model, list) and not (model.layers[0]._name == list(ds.element_spec[0].keys())[0]):
                 print(f"Renaming model input to \'{list(ds.element_spec[0].keys())[0]}\' to ensure ds compatibility.")
                 model.layers[0]._name = list(ds.element_spec[0].keys())[0]
-        preds = np.asarray(model.predict(ds, verbose=verbose)) # TODO: may fail if single-class pred
+        preds = np.asarray(model.predict(ds, verbose=verbose))
 
         all_identifiers.append(identifiers)
         all_predictions.append(preds)
@@ -395,7 +406,8 @@ def perform_submission_pipeline(classifier_dir,
     print(f"Classifying locations using model \"{classifier_dir}\" and scaler \"{scaler_dir}\"")
 
     scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
-    ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,
+    ds_gen = datahandler.DatasetGenerator(train_val_df_dict=None,
+                                          test_df_dict=split_dataframes,
                                             non_transform_features=non_transform_features,
                                             diff_transform_features=diff_transform_features,
                                             legacy_diff_transform=legacy_diff_transform,
@@ -425,16 +437,14 @@ def perform_submission_pipeline(classifier_dir,
     pred_df = create_prediction_df(ds_gen=ds_gen,
                                 model=classifier_model,
                                 convolve_input_stride=convolve_input_stride,
-                                train=False,
-                                test=True,
+                                ds_type='test',
                                 only_nodes=False,
                                 model_outputs=[f'{dir}_Type' for dir in output_dirs],
                                 object_limit=None,
-                                prediction_batches=int(((input_future_steps+input_history_steps)/input_stride)/25.05),
+                                prediction_batch_size=64,
                                 verbose=2)
 
     original_loc_preds = loc_preds.copy(deep=True) # preserve known & unknown columns
-    print(len(original_loc_preds.loc[original_loc_preds['Node']=='ID']))
     typed_df = fill_unknown_types_based_on_preds(pred_df, loc_preds, dirs=output_dirs)
     classified_df = fill_unknwon_nodes_based_on_type(typed_df, dirs=output_dirs)
 

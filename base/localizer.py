@@ -23,31 +23,29 @@ def create_prediction_df(ds_gen,
                          model,
                          convolve_input_stride=True,
                          stateful=False,
-                         train=False,
-                         test=False,
+                         ds_type='train',
                          output_dirs=['EW', 'NS'],
                          only_ew_sk=False, 
                          object_limit=None,
-                         prediction_batches=1,
-                         ds_batch_size=256,
+                         ds_batch_size=512,
+                         prediction_batch_size=128, # number of objects to predict at a time
                          prediction_stride=1,
                          verbose=1):
-    if test and object_limit is not None:
+    if ds_type=='test' and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
-    if stateful and prediction_batches != 1:
-        print("Warning: Prediction batches needs to be '1' for stateful LSTMs!")
     
     all_identifiers = []
     all_predictions = []
 
-    all_train_keys = ds_gen.train_keys[:(len(ds_gen.train_keys) if object_limit is None else object_limit)]
-    train_batch_size = int(np.ceil(len(all_train_keys)/prediction_batches))
-    all_val_keys = ds_gen.val_keys[:(len(ds_gen.val_keys) if object_limit is None else object_limit)]
-    val_batch_size = int(np.ceil(len(all_val_keys)/prediction_batches))
-    for batch_idx in range(prediction_batches):
+    # Perform additional batching - this reduces the memory load on slowwww computers
+    all_keys = (ds_gen.train_keys if ds_type=='train' else
+               (ds_gen.val_keys if ds_type=='val' else
+                ds_gen.test_keys))
+    all_keys = all_keys[:(len(all_keys) if object_limit is None else object_limit)]
+    n_prediction_batches = int(np.ceil(len(all_keys)/prediction_batch_size))
+    for batch_idx in range(n_prediction_batches):
 
-        train_keys = all_train_keys[batch_idx*train_batch_size:batch_idx*train_batch_size+train_batch_size]
-        val_keys = all_val_keys[batch_idx*val_batch_size:batch_idx*val_batch_size+val_batch_size]
+        ds_keys = all_keys[batch_idx*prediction_batch_size:batch_idx*prediction_batch_size+prediction_batch_size]
 
         datasets = None
         if not stateful:
@@ -55,17 +53,18 @@ def create_prediction_df(ds_gen,
                                             label_features=[],
                                             overview_as_second_input=isinstance(model, list),
                                             convolve_input_stride=convolve_input_stride,
-                                            shuffle=False, # if we dont use the majority method, its enough to just evaluate on nodes
+                                            shuffle=False,
                                             with_identifier=True,
                                             only_ew_sk=only_ew_sk,
-                                            train_keys=train_keys[:(len(train_keys) if (train or test) else 1)],
-                                            val_keys=val_keys[:(len(val_keys) if not (train or test) else 1)],
+                                            train_keys=ds_keys if ds_type=='train' else [], # do not even create any of the datasets we are not interested in, in order to save memory
+                                            val_keys=ds_keys if ds_type=='val' else [],
+                                            test_keys=ds_keys if ds_type=='test' else [],
                                             stride=prediction_stride)
-            ds = (datasets[0] if train else datasets[1]) if not test else datasets
+            ds = datasets[ds_type]
 
             identifiers = np.concatenate([element for element in ds.map(get_y_from_xy).as_numpy_iterator()])
 
-            # get predictions
+            # get predictions - ensure compatibility with multi-input models
             if not isinstance(model, list) and not (model.layers[0]._name == list(ds.element_spec[0].keys())[0]):
                 print(f"Renaming model input to \'{list(ds.element_spec[0].keys())[0]}\' to ensure ds compatibility.")
                 model.layers[0]._name = list(ds.element_spec[0].keys())[0]
@@ -282,7 +281,8 @@ def perform_submission_pipeline(localizer_dir,
     print(f"Predicting locations using model \"{localizer_dir}\" and scaler \"{scaler_dir}\"")
 
     scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
-    ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,
+    ds_gen = datahandler.DatasetGenerator(train_val_df_dict=None,
+                                          test_df_dict=split_dataframes,
                                             non_transform_features=non_transform_features,
                                             diff_transform_features=diff_transform_features,
                                             legacy_diff_transform=legacy_diff_transform,
@@ -313,10 +313,9 @@ def perform_submission_pipeline(localizer_dir,
     preds_df = create_prediction_df(ds_gen=ds_gen,
                                     model=localizer,
                                     convolve_input_stride=convolve_input_stride,
-                                    train=False,
-                                    test=True,
+                                    ds_type='test',
                                     output_dirs=output_dirs,
-                                    prediction_batches=15,
+                                    prediction_batch_size=64,
                                     verbose=2)
 
     subm_df = postprocess_predictions(preds_df=preds_df,
@@ -424,15 +423,14 @@ def perform_evaluation_pipeline(ds_gen,
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
                                 model=model,
-                                train=True if ds_type=='train' else False,
-                                test=True if ds_type=='test' else False,
+                                ds_type=ds_type,
                                 convolve_input_stride=convolve_input_stride,
                                 stateful=False,
                                 output_dirs=output_dirs,
                                 object_limit=object_limit,
                                 only_ew_sk=False,
                                 ds_batch_size=1024,
-                                prediction_batches=prediction_batches,
+                                prediction_batch_size=64,
                                 prediction_stride=prediction_stride,
                                 verbose=verbose)
     

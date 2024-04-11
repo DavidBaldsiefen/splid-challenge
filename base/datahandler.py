@@ -149,6 +149,8 @@ class DatasetGenerator():
                  verbose=1,
                  seed=42,
                  deepcopy=True):
+        
+        assert(not((train_val_df_dict is None) and (test_df_dict is None)))
 
         self._input_features=non_transform_features
         self._with_labels=with_labels
@@ -166,7 +168,7 @@ class DatasetGenerator():
             print(f"=========================Creating Generator=======================\nSeed: {self._seed}")
 
         # create the train and val split
-        keys_list = list(train_val_df_dict.keys())
+        keys_list = list(train_val_df_dict.keys()) if train_val_df_dict is not None else []
         keys_list.sort() # first, sort the list - this ensures that it doesn't matter where the keys are coming from (they will be sorted strangely as theyre strings)
         if shuffle_train_val:
             random.Random(self._seed).shuffle(keys_list) # shuffle, but with a seed for reproducability
@@ -177,8 +179,10 @@ class DatasetGenerator():
 
         # merge the test dataset, if it exists
         # The deepcopy helps prevent very pythonic bugs, but obiously costs performance
-        train_val_df_dict = copy.deepcopy(train_val_df_dict) if deepcopy else train_val_df_dict
-        combined_df_dict = train_val_df_dict
+        combined_df_dict = {}
+        if train_val_df_dict is not None:
+            train_val_df_dict = copy.deepcopy(train_val_df_dict) if deepcopy else train_val_df_dict
+            combined_df_dict = train_val_df_dict # do not use update, as this may end up in some memory-copy operation
         if test_df_dict is not None:
             test_df_dict = copy.deepcopy(test_df_dict) if deepcopy else test_df_dict
             combined_df_dict.update(test_df_dict)
@@ -192,7 +196,7 @@ class DatasetGenerator():
                 combined_df_dict.pop(str(key), None)
 
         if verbose>0:
-            print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} nTest: {len(self._test_keys)} (train-val-split: {len(self._train_keys)/len(keys_list):.2f})")
+            print(f"nTrain: {len(self._train_keys)} nVal: {len(self._val_keys)} nTest: {len(self._test_keys)} (train-val-split: {len(self._train_keys)/(len(keys_list)+1e-9):.2f})")
             print(f"Padding: {self._padding}")
             print(f"Horizons: {self._input_history_steps}-{self._input_future_steps} @ stride {self._input_stride}")
             print(f"Scaling: {scale} {'(custom scaler)' if custom_scaler is not None else ''} {'(per-object)' if per_object_scaling is True else ''}")
@@ -317,8 +321,7 @@ class DatasetGenerator():
                 for key in self._train_keys + self._val_keys + self._test_keys:
                     combined_df_dict[key][scaler_features] = StandardScaler().fit_transform(combined_df_dict[key][scaler_features].values)
             else:
-                concatenated_train_df = pd.concat([combined_df_dict[k] for k in self._train_keys], ignore_index=True)
-                scaler = StandardScaler().fit(concatenated_train_df[scaler_features].values) if custom_scaler is None else custom_scaler
+                scaler = StandardScaler().fit(pd.concat([combined_df_dict[k] for k in self._train_keys], ignore_index=True)[scaler_features].values) if custom_scaler is None else custom_scaler
                 self._scaler = scaler
                 for key in self._train_keys + self._val_keys + self._test_keys:
                     combined_df_dict[key][scaler_features] = scaler.transform(combined_df_dict[key][scaler_features].values)
@@ -389,7 +392,7 @@ class DatasetGenerator():
         columns_to_keep = ['ObjectID', 'TimeIndex'] + input_cols + (['EW_Node', 'EW_Type', 'EW', 'EW_Node_Location_nb', 'EW_Node_Location',
                                                    'NS_Node', 'NS_Type', 'NS', 'NS_Node_Location_nb', 'NS_Node_Location'] if with_labels else [])
         columns_to_keep = list(dict.fromkeys(columns_to_keep)) # remove duplicates
-        columns_to_remove = [item for item in combined_df_dict[self._train_keys[0]].columns if item not in columns_to_keep]
+        columns_to_remove = [item for item in next(iter(combined_df_dict.values())).columns if item not in columns_to_keep]
         if verbose>1:
                 print(f"Dropping {len(columns_to_remove)} unused columns now.")
         self._preprocessed_dataframes = {key : value.drop(columns=columns_to_remove, inplace=False)  for key, value in combined_df_dict.items()}
@@ -581,6 +584,7 @@ class DatasetGenerator():
             element_identifiers = element_identifiers[ew_sk_fields]
             
         # finally, create the dataset
+        # this is done on the CPU, not because it makes sense, but because I am working with some seriously limited hardware here
         with tf.device("CPU"):
             if (overview_features_mean or overview_features_std) and overview_as_second_input:
                 dataset = tf.data.Dataset.from_tensor_slices(({'local_in': inputs, 'global_in':inputs_overview}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}, element_identifiers) if (label_features and with_identifier) else
@@ -592,7 +596,7 @@ class DatasetGenerator():
                                                     ({'local_in': inputs}, element_identifiers) if ((not label_features) and with_identifier) else
                                                     ({'local_in': inputs}, {feature:labels[:,ft_idx] for ft_idx, feature in enumerate(label_features)}))
 
-        # Do some garbage collection - StackOverflow is not sure if this will help or not
+        # Do some garbage collection - helps preserve memory
         del labels
         del inputs
         del element_identifiers
@@ -600,39 +604,36 @@ class DatasetGenerator():
 
         return dataset
 
-    def get_datasets(self, batch_size=None, label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
-                     with_identifier=False, only_nodes=False, only_ew_sk=False, overview_as_second_input=False, oneshot_input_discretization=1, oneshot_output_discretization=1, shuffle=True,
-                     train_keys=None, val_keys=None, convolve_input_stride=True, stride=1, keep_label_stride=1, stride_offset=0, verbose=0):
-        
+    def get_datasets(self,
+                     batch_size=None,
+                     label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
+                     with_identifier=False,
+                     only_nodes=False,
+                     only_ew_sk=False,
+                     overview_as_second_input=False,
+                     oneshot_input_discretization=1,
+                     oneshot_output_discretization=1,
+                     shuffle=True,
+                     train_keys=None,
+                     val_keys=None,
+                     test_keys=None,
+                     convolve_input_stride=True,
+                     stride=1,
+                     keep_label_stride=1,
+                     stride_offset=0,
+                     verbose=0):
+        """Get the datasets as defined by the dataset_generator. If no keys are provided, the method assumes the default train/val/test keys"""
+                
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
         val_keys = self._val_keys if val_keys is None else val_keys
-        train_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
-                                                keys=train_keys,
-                                                input_features=self._input_features,
-                                                overview_features_mean=self._overview_features_mean,
-                                                overview_features_std=self._overview_features_std,
-                                                overview_as_second_input=overview_as_second_input,
-                                                label_features=label_features,
-                                                oneshot_input_discretization=oneshot_input_discretization,
-                                                oneshot_output_discretization=oneshot_output_discretization,
-                                                only_nodes=only_nodes,
-                                                only_ew_sk=only_ew_sk,
-                                                with_identifier=with_identifier,
-                                                input_history_steps=self._input_history_steps,
-                                                input_future_steps=self._input_future_steps,
-                                                stride=stride,
-                                                stride_offset=stride_offset,
-                                                keep_label_stride=keep_label_stride,
-                                                input_stride=self._input_stride,
-                                                convolve_input_stride=convolve_input_stride,
-                                                padding=self._padding,
-                                                verbose=verbose)
-        datasets = [train_ds]
-        gc.collect()
-        if val_keys:
-            val_ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
-                                                    keys=val_keys,
+        test_keys = self._test_keys if test_keys is None else test_keys
+        dataset_keys = {'train':train_keys, 'val':val_keys, 'test':test_keys}
+        datasets = {}
+        for ds_type, ds_keys in dataset_keys.items():
+            if ds_keys:
+                ds = self.create_ds_from_dataframes(self._preprocessed_dataframes,
+                                                    keys=ds_keys,
                                                     input_features=self._input_features,
                                                     overview_features_mean=self._overview_features_mean,
                                                     overview_features_std=self._overview_features_std,
@@ -652,17 +653,20 @@ class DatasetGenerator():
                                                     convolve_input_stride=convolve_input_stride,
                                                     padding=self._padding,
                                                     verbose=verbose)
-            datasets.append(val_ds)
+                
+                
+                datasets[ds_type] = ds
+        gc.collect()
             
         if shuffle:
-            print("Train-DS Cardinality:", datasets[0].cardinality())
-            print("Val-DS Cardinality:", datasets[1].cardinality())
-            datasets = [ds.shuffle(ds.cardinality(), seed=self._seed) for ds in datasets]
+            if verbose>0:
+                print(f"DS-Cardinalities: {[f'{k}: {v.cardinality()}' for k,v in datasets.idems()]}")
+            datasets = {ds_type: ds.shuffle(ds.cardinality(), seed=self._seed) for ds_type, ds in datasets.items()}
         if batch_size is not None:
-            datasets = [ds.batch(batch_size) for ds in datasets]
-        return datasets if len(datasets)>1 else datasets[0]
+            datasets = {ds_type: ds.batch(batch_size) for ds_type, ds in datasets.items()}
+        return datasets
     
-    def plot_dataset_items(self, ds_with_identifier, objectid, timeindex):
+    def plot_dataset_item(self, ds_with_identifier, objectid, timeindex):
         import matplotlib.pyplot as plt # the import is placed down here so that plt is not required in the docker container
 
         # plot random dataset item for debugging
@@ -710,6 +714,10 @@ class DatasetGenerator():
     @property
     def val_keys(self):
         return self._val_keys
+    
+    @property
+    def test_keys(self):
+        return self._test_keys
     
     @property
     def scaler(self):
