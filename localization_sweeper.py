@@ -86,15 +86,15 @@ def parameter_sweep(config=None):
             elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
 
-        ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
+        ds_gen = datahandler.DatasetGenerator(train_val_df=split_dataframes,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
                                               exclude_objects=[30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
                                                 legacy_diff_transform=config.ds_gen['legacy_diff_transform'],
                                                 sin_transform_features=sin_transform_features,
                                                 sin_cos_transform_features=sin_cos_transform_features,
-                                                highpass_features=highpass_features,
-                                                highpass_order=15,
+                                                lowpass_features=highpass_features,
+                                                lowpass_filter_order=15,
                                                 overview_features_mean=config.ds_gen['overview_features_mean'],
                                                 overview_features_std=config.ds_gen['overview_features_std'],
                                                 add_daytime_feature=config.ds_gen['add_daytime_feature'],

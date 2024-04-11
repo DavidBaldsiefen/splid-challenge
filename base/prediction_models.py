@@ -12,7 +12,6 @@ class Prediction_Model():
         self._rnd_gen = np.random.default_rng(self._seed)
 
     def compile(self, optimizer=keras.optimizers.legacy.Adam(), loss_fn=keras.losses.MeanSquaredError(), metrics=['mse']):
-        # TODO: try RMSprop? in general, different optimizers
         assert(self._model is not None)
         self._model.compile(optimizer=optimizer, loss=loss_fn, metrics=metrics)
 
@@ -107,7 +106,7 @@ class Prediction_Model():
         return self._hist
 
 class AsymmetricMSE(tf.keras.losses.Loss):
-    """Loss function that penalizes over- (a>0) or underestimation (a<0). -1<a<1"""
+    """Loss function that penalizes over- (a>0) or underestimation (a<0). alpha has to be in range ]-1,1["""
     def __init__(self, alpha):
         super().__init__()
         assert(-1.0<alpha and alpha<1.0)

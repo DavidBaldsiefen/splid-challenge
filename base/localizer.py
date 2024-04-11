@@ -262,6 +262,7 @@ def perform_submission_pipeline(localizer_dir,
                                 clean_neighbors_below_distance=-1,
                                 non_transform_features=[],
                                 diff_transform_features=[],
+                                legacy_diff_transform=True,
                                 sin_transform_features=[],
                                 sin_cos_transform_features=[],
                                 overview_features_mean=[],
@@ -281,9 +282,10 @@ def perform_submission_pipeline(localizer_dir,
     print(f"Predicting locations using model \"{localizer_dir}\" and scaler \"{scaler_dir}\"")
 
     scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
-    ds_gen = datahandler.DatasetGenerator(split_df=split_dataframes,
+    ds_gen = datahandler.DatasetGenerator(train_val_df=split_dataframes,
                                             non_transform_features=non_transform_features,
                                             diff_transform_features=diff_transform_features,
+                                            legacy_diff_transform=legacy_diff_transform,
                                             sin_transform_features=sin_transform_features,
                                             sin_cos_transform_features=sin_cos_transform_features,
                                             overview_features_mean=overview_features_mean,
@@ -314,7 +316,7 @@ def perform_submission_pipeline(localizer_dir,
                                     train=False,
                                     test=True,
                                     output_dirs=output_dirs,
-                                    prediction_batches=5,
+                                    prediction_batches=15,
                                     verbose=2)
 
     subm_df = postprocess_predictions(preds_df=preds_df,
