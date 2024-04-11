@@ -31,9 +31,12 @@ def parameter_sweep(config=None):
 
         # Load data
         challenge_data_dir = Path('dataset/phase_1_v3/')
-        data_dir = challenge_data_dir / "train"
-        labels_dir = challenge_data_dir / 'train_labels.csv'
-        split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+        data_dir_train_val = challenge_data_dir / "train"
+        data_dir_test = challenge_data_dir / "train"
+        labels_dir_train_val = challenge_data_dir / 'train_labels.csv'
+        labels_dir_test = challenge_data_dir / 'test_labels.csv'
+        split_dataframes_train_val = datahandler.load_and_prepare_dataframes(data_dir_train_val, labels_dir_train_val)
+        split_dataframes_test = datahandler.load_and_prepare_dataframes(data_dir_test, labels_dir_test)
 
         directions=config.training['directions']
         print(f"Directions: {directions}")
@@ -86,7 +89,8 @@ def parameter_sweep(config=None):
             elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
 
-        ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
+        ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes_train_val,#{df_k : split_dataframes[df_k] for df_k in list(split_dataframes.keys())[:900]},
+                                              test_df_dict=split_dataframes_test,
                                               exclude_objects=[30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
@@ -122,17 +126,17 @@ def parameter_sweep(config=None):
                                                 deepcopy=False)
         print('Trn-keys:', ds_gen.train_keys[:10])
         print('Val-keys:', ds_gen.val_keys[:10])
-        train_ds, val_ds = ds_gen.get_datasets(2048,
-                                               label_features=[f'{dir}_Node_Location_nb' for dir in directions],
-                                               shuffle=True,
-                                               stride=30,
-                                               keep_label_stride=1)
+        datasets = ds_gen.get_datasets(2048,
+                                        label_features=[f'{dir}_Node_Location_nb' for dir in directions],
+                                        shuffle=True,
+                                        stride=100,
+                                        keep_label_stride=1)
 
-        print(train_ds.element_spec)
+        print(datasets['train'].element_spec)
 
         # =================================Model Creation & Training================================================
 
-        model = prediction_models.Dense_NN(val_ds, 
+        model = prediction_models.Dense_NN(datasets['val'], 
                                            conv1d_layers=config.model['conv1d_layers'],
                                            dense_layers=config.model['dense_layers'],
                                            lstm_layers=config.model['lstm_layers'],
@@ -156,8 +160,7 @@ def parameter_sweep(config=None):
                                            seed=0)
         model.summary()
 
-        del train_ds
-        del val_ds
+        del datasets
         gc.collect()
 
 
@@ -168,7 +171,7 @@ def parameter_sweep(config=None):
         global_wandb_step = 0
         for strides, offset, keep_label, epochs in config.training['training_sets']:
             print(f"Strides: {strides} Offset: {offset} Keeping Label: {keep_label} Epochs: {epochs}")
-            train_ds, val_ds = ds_gen.get_datasets(config.training['batch_size'],
+            datasets = ds_gen.get_datasets(config.training['batch_size'],
                                                 label_features=[f'{dir}_Node_Location_nb' for dir in directions],
                                                 convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                                 shuffle=True,
@@ -176,11 +179,12 @@ def parameter_sweep(config=None):
                                                 stride=1 if keep_label else strides,
                                                 keep_label_stride=1 if not keep_label else strides,
                                                 stride_offset=offset,
+                                                test_keys=[],
                                                 verbose=0)
         
             # train
-            hist = model.fit(train_ds,
-                            val_ds=val_ds,
+            hist = model.fit(datasets['train'],
+                            val_ds=datasets['val'],
                             epochs=epochs,
                             early_stopping=0,
                             target_metric='val_loss',
@@ -189,8 +193,7 @@ def parameter_sweep(config=None):
                             callbacks=[WandbMetricsLogger(initial_global_step=global_wandb_step), ClearMemoryCallback()],
                             verbose=2)
             
-            del train_ds
-            del val_ds
+            del datasets
         
             global_wandb_step += epochs
             print(f"----------------------Step: {global_wandb_step}-----------------------------")
@@ -201,7 +204,7 @@ def parameter_sweep(config=None):
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                         output_dirs=directions,
-                                        prediction_batches=5,
+                                        prediction_batch_size=96,
                                         thresholds = np.linspace(25.0, 70.0, 10),
                                         object_limit=None,
                                         with_initial_node=False,
@@ -242,26 +245,46 @@ def parameter_sweep(config=None):
         wandb.run.summary['best_F2_step'] = best_f2_step
 
         train_object_limit = 200
-        n_batches = 4
-        print(f"Running train-evaluation on a subset of {train_object_limit} objects ({n_batches} batches) with threshold {60.0}:")
-        evaluation_results_t = localizer.perform_evaluation_pipeline(ds_gen,
+        print(f"Running train-evaluation on a subset of {train_object_limit} objects:")
+        evaluation_results_train = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
                                         'train',
                                         gt_path = challenge_data_dir / 'train_labels.csv',
                                         convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                         output_dirs=directions,
-                                        prediction_batches=5,
+                                        prediction_batch_size=96,
                                         thresholds = [50.0],
                                         object_limit=train_object_limit,
                                         with_initial_node=False,
                                         nodes_to_consider=config.training['nodes_to_consider'],
                                         verbose=0)
-        for key,value in evaluation_results_t[0].items():
+        for key,value in evaluation_results_train[0].items():
             wandb.run.summary[f'train/{key}'] = value
 
-        split_dataframes = None
+        train_object_limit = 96
+        print(f"Running test-evaluation:")
+        evaluation_results_test = localizer.perform_evaluation_pipeline(ds_gen,
+                                        model.model,
+                                        'test',
+                                        gt_path = challenge_data_dir / 'test_labels.csv',
+                                        convolve_input_stride=config.ds_gen['convolve_input_stride'],
+                                        output_dirs=directions,
+                                        prediction_batch_size=96,
+                                        thresholds = [50.0],
+                                        object_limit=None,
+                                        with_initial_node=False,
+                                        nodes_to_consider=config.training['nodes_to_consider'],
+                                        verbose=0)
+        for key,value in evaluation_results_test[0].items():
+            wandb.run.summary[f'test/{key}'] = value
+
+
+        # Garbage collection which helps on low power machines
+        split_dataframes_train_val = None
+        split_dataframes_test = None
         ds_gen = None
-        del split_dataframes
+        del split_dataframes_train_val
+        del split_dataframes_test
         del ds_gen
         gc.collect()
 
