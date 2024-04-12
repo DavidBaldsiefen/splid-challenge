@@ -19,9 +19,12 @@ def parameter_sweep(config=None):
 
         # Load data
         challenge_data_dir = Path('dataset/phase_2/')
-        data_dir = challenge_data_dir / "training"
-        labels_dir = challenge_data_dir / 'train_labels.csv'
-        split_dataframes = datahandler.load_and_prepare_dataframes(data_dir, labels_dir)
+        train_val_data_dir = challenge_data_dir / "training"
+        test_data_dir = challenge_data_dir / "test"
+        train_val_labels_dir = challenge_data_dir / 'train_label.csv'
+        test_labels_dir = challenge_data_dir / 'test_label.csv'
+        train_val_df_dict = datahandler.load_and_prepare_dataframes(train_val_data_dir, train_val_labels_dir)
+        test_df_dict = datahandler.load_and_prepare_dataframes(test_data_dir, test_labels_dir)
 
         dirs=config.training['directions']
         print(f"Directions: {dirs}")
@@ -82,7 +85,8 @@ def parameter_sweep(config=None):
             elif value == 'non': idontknowwhatelsetodo=1# do nothing
             else: print(f"Warning: unknown feature_engineering attribute \'{value}\' for feature {ft_name}")
         
-        ds_gen = datahandler.DatasetGenerator(train_val_df_dict=split_dataframes,
+        ds_gen = datahandler.DatasetGenerator(train_val_df_dict=train_val_df_dict,
+                                              test_df_dict=test_df_dict,
                                               exclude_objects=[9, 10, 13, 19, 30, 113, 1012, 1383, 1385, 1386, 1471, 1473, 1474],
                                                 non_transform_features=non_transform_features,
                                                 diff_transform_features=diff_transform_features,
@@ -206,10 +210,10 @@ def parameter_sweep(config=None):
                                 object_limit=None,
                                 only_nodes=True,
                                 confusion_matrix=False,
-                                prediction_batch_size=128,
+                                prediction_batch_size=256,
                                 verbose=2)
-        ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-        ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
+        ground_truth_df = pd.read_csv(train_val_labels_dir)#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+        ground_truth_eval_df = pd.read_csv(train_val_labels_dir)
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
         typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
@@ -234,10 +238,10 @@ def parameter_sweep(config=None):
                                 convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                 object_limit=None,
                                 only_nodes=True,
-                                prediction_batch_size=128,
+                                prediction_batch_size=256,
                                 verbose=2)
-        ground_truth_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-        ground_truth_eval_df = pd.read_csv(challenge_data_dir / 'train_labels.csv')
+        ground_truth_df = pd.read_csv(train_val_labels_dir)#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+        ground_truth_eval_df = pd.read_csv(train_val_labels_dir)
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
         ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
         typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
@@ -252,13 +256,43 @@ def parameter_sweep(config=None):
         wandb.run.summary['train_FP'] = total_fp
         print(f"TRN: P: {precision:.3f} TP: {total_tp} FP: {total_fp}")
 
+
+        print("Running test-evaluation:")
+        pred_df = classifier.create_prediction_df(ds_gen=ds_gen,
+                                model=model.model,
+                                ds_type='test',
+                                model_outputs=[f'{dir}_Type' for dir in dirs],
+                                convolve_input_stride=config.ds_gen['convolve_input_stride'],
+                                object_limit=None,
+                                only_nodes=True,
+                                prediction_batch_size=256,
+                                verbose=2)
+        ground_truth_df = pd.read_csv(test_labels_dir)#.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
+        ground_truth_eval_df = pd.read_csv(test_labels_dir)
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Type'] = 'UNKNOWN'
+        ground_truth_df.loc[ground_truth_df['Node'] != 'ID', 'Node'] = 'UNKNOWN'
+        typed_df = classifier.fill_unknown_types_based_on_preds(pred_df, ground_truth_df, dirs=dirs)
+        classified_df = classifier.fill_unknwon_nodes_based_on_type(typed_df, dirs=dirs)
+        evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_eval_df, participant=classified_df, ignore_nodes=True)
+        precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
+        wandb.define_metric('test_Precision', summary="max")
+        wandb.define_metric('test_TP', summary="max")
+        wandb.define_metric('test_FP', summary="min")
+        wandb.run.summary['test_Precision'] = precision
+        wandb.run.summary['test_TP'] = total_tp
+        wandb.run.summary['test_FP'] = total_fp
+        print(f"TST: P: {precision:.3f} TP: {total_tp} FP: {total_fp}")
+
         
-        split_dataframes = None
+        # Try to preserve some memory
+        train_val_df_dict = None
+        test_df_dict = None
         ds_gen = None
         del typed_df
         del classified_df
         del evaluator
-        del split_dataframes
+        del train_val_df_dict
+        del test_df_dict
         del ds_gen
         gc.collect()
 
@@ -330,7 +364,7 @@ sweep_configuration = {
             "linear_timeindex_as_overview" : {"values": [True]},
             "input_history_steps" : {"values": [32]},
             "input_future_steps" : {"values": [256]},
-            "legacy_diff_transform" : {"values": [True, False]},
+            "legacy_diff_transform" : {"values": [False]},
             }
         },
         "model" : {
