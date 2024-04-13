@@ -1,6 +1,0 @@
-# These are the dependencies used to create your docker image.
-# You don't need to include all the libraries used to train your
-# model. Only include the libraries actually needed to 
-# perform predictions.
-pandas
-numpy
