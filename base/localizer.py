@@ -489,7 +489,7 @@ def perform_evaluation_pipeline(ds_gen,
         subm_df = subm_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         scores = evaluate_localizer(subm_df=subm_df,
                                 gt_path=gt_path,
-                                object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else ds_gen.train_keys))[:object_limit],
+                                object_ids=list(map(int, ds_gen.val_keys if ds_type=='val' else (ds_gen.train_keys if ds_type=='train' else ds_gen.test_keys)))[:object_limit],
                                 dirs=output_dirs,
                                 with_initial_node=with_initial_node,
                                 nodes_to_consider=nodes_to_consider, 
