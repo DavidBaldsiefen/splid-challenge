@@ -15,7 +15,7 @@ def plot_object(ObjectID, dataset_path, features=[], label_df=None, pred_df=None
     import matplotlib.pyplot as plt
 
     object_df = pd.read_csv(Path(dataset_path) / Path(file_prefix + str(ObjectID) + '.csv'))
-    object_df = object_df.iloc[0:200]
+    object_df = object_df.iloc[:]
     object_df['TimeIndex'] = range(len(object_df))
     labels = None if label_df is None else label_df.loc[label_df['ObjectID'] == int(ObjectID)]
 
@@ -28,7 +28,7 @@ def plot_object(ObjectID, dataset_path, features=[], label_df=None, pred_df=None
     for ft_idx, input_ft in enumerate(features):
 
         axes[ft_idx].plot(object_df['TimeIndex'][::1], object_df[input_ft][::1], label=input_ft)
-        axes[ft_idx].plot(object_df['TimeIndex'][::5], object_df[input_ft][::5], label=input_ft)
+        #axes[ft_idx].plot(object_df['TimeIndex'][::5], object_df[input_ft][::5], label=input_ft)
 
         wraparound_offset = ([180, -180] if input_ft == 'Longitude (deg)' else
                                      [270, -90] if input_ft in ['True Anomaly (deg)'] else # True Anomaly should usually increase, but small decreases are possible

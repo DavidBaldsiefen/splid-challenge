@@ -663,7 +663,7 @@ class DatasetGenerator():
             
         if shuffle:
             if verbose>0:
-                print(f"DS-Cardinalities: {[f'{k}: {v.cardinality()}' for k,v in datasets.idems()]}")
+                print(f"DS-Cardinalities: {[f'{k}: {v.cardinality()}' for k,v in datasets.items()]}")
             datasets = {ds_type: ds.shuffle(ds.cardinality(), seed=self._seed) for ds_type, ds in datasets.items()}
         if batch_size is not None:
             datasets = {ds_type: ds.batch(batch_size) for ds_type, ds in datasets.items()}
