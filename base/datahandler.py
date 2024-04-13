@@ -14,6 +14,9 @@ if float(tf.__version__[:4]) < 2.15:
     pd.set_option('future.no_silent_downcasting', True)
 
 def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
+    """Code to load and prepare the dataframes.
+    Partially taken from https://github.com/ARCLab-MIT/splid-devkit/ ((c) 2023 Peng Mun Siew, MIT License)
+    """
     # Load the labels
     if labels_dir is None:
         print("loading data without labels")
@@ -114,44 +117,64 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
 
 
 class DatasetGenerator():
+    """Wrapper for all things related to dataset generation and preprocessing.
+    While most parameters are defined during initialization, some can be modified later on when fetching the dataset using get_datasets.
+    This is mostly based on how the code developed over time, for debugging purposes, and for performance and memory saving reasons.
+    It is usually recommended to create a new DatasetGenerator for every new training."""
+
     def __init__(self,
-                 train_val_df_dict,
-                 test_df_dict=None,
-                 exclude_objects=[], # option to exclude certain objects (after the train-val split has been performed) which may be erronous
-                 input_history_steps=10, # how many history timesteps we get as input, including the current one
-                 input_future_steps=0, # how many future timesteps we get as input
-                 non_transform_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"],
-                 sin_transform_features=[],
-                 sin_cos_transform_features=[],
-                 diff_transform_features=[],
-                 legacy_diff_transform=True,
-                 lowpass_features=[],
-                 lowpass_filter_order=20,
-                 lowpass_filter_cutoff_frequency=0.8,
-                 overview_features_mean=[],
-                 overview_features_std=[],
-                 add_daytime_feature=False,
-                 add_yeartime_feature=False,
-                 add_linear_timeindex=False,
-                 linear_timeindex_as_overview=False,
-                 with_labels=True,
-                 pad_location_labels=0,
-                 nonbinary_padding=[],
-                 nodes_to_include_as_locations=['ID', 'AD', 'IK'],
-                 input_stride=1, # distance between input steps
-                 padding='none', # wether to use none/zero/same padding at the beginning and end of each df
-                 shuffle_train_val=True,
-                 train_val_split=0.8,
-                 unify_value_ranges=False,
-                 scale=True,
-                 per_object_scaling=False,
-                 custom_scaler=None,
-                 node_class_multipliers={},
-                 input_dtype=np.float32,
-                 sort_inputs=True,
-                 verbose=1,
-                 seed=42,
-                 deepcopy=True):
+                 
+                 # Input Data
+                 train_val_df_dict,         # Training & Validation data
+                 test_df_dict=None,         # Optional test-data
+                 exclude_objects=[],        # manually exclude certain objects (after the train-val split has been performed) which may be erronous
+                 
+                 # General dataset settings
+                 padding='none',            # whether to use none/zero/same padding at the beginning and end of each df
+                 shuffle_train_val=True,    # whether to shuffle objects before splitting
+                 train_val_split=0.8,       # training/validation split
+                 unify_value_ranges=False,  # whether to unify value ranges, i.e. consistent handling of [0:360] or [-180:180] representation
+
+                 # Input horizons & Stride
+                 input_history_steps=10,    # how many history timesteps we get as input, including the current one
+                 input_future_steps=0,      # how many future timesteps we get as input
+                 input_stride=1,            # distance between input steps
+
+                 # Input feature selection
+                 non_transform_features=["Eccentricity", "Semimajor Axis (m)", "Inclination (deg)", "RAAN (deg)", "Argument of Periapsis (deg)", "True Anomaly (deg)", "Latitude (deg)", "Longitude (deg)", "Altitude (m)", "X (m)", "Y (m)", "Z (m)", "Vx (m/s)", "Vy (m/s)", "Vz (m/s)"], # default features that will not be transformed further (except for scaling)
+                 sin_transform_features=[],     # features to which a sine transformation is applied
+                 sin_cos_transform_features=[], # features to which a sine and cosine transformation is applied
+                 diff_transform_features=[],    # features for differential encoding 
+                 lowpass_features=[],           # features to which a lowpass-filter is applied
+                 overview_features_mean=[],     # these features will be passed to the model as a downsampled version of the running mean of the entire timeseries
+                 overview_features_std=[],      # these features will be passed to the model as a downsampled version of the running standard deviation of the entire timeseries
+                 add_daytime_feature=False,     # sinusodial that encodes days
+                 add_yeartime_feature=False,    # sinusodial that encodes years
+                 add_linear_timeindex=False,    # feature that encodes the current "time" in the timeseries (default: starts at -1 and linearly increases to 1)
+
+                 # Transformation details
+                 lowpass_filter_order=20,               # order of the butterworth filter
+                 lowpass_filter_cutoff_frequency=0.8,   # cutoff frequency of the butterworth filter (1Hz = 1 day)
+                 legacy_diff_transform=True,            # legacy code included a bug where discontinuities were not properly considered
+                 scale=True,                            # whether to perform scaling
+                 per_object_scaling=False,              # whether to perform scaling on a per-object basis, or over the entire dataset
+                 custom_scaler=None,                    # custom scaler to use (not used if per_object_scaling==True)
+                 linear_timeindex_as_overview=False,    # wether the linear timeindex should be a linear value (increasing from -1 to 1 over the entire timeseries), or an overview feature with one index on the time-axis=1
+
+                 # Label generation
+                 with_labels=True,          # whether to use labels at all (disable during inference)          
+                 pad_location_labels=0,     # for binary padding, this will set n labels before and after a changepoint to true as well
+                 nonbinary_padding=[],      # for linear padding: Set the central value to the first value in the list, and then apply the other linear values left and right (i.e. [10.0,5.0] -> [0.0,5.0,10.0,5.0,0.0])
+                 nodes_to_include_as_locations=['ID', 'AD', 'IK'],  # Nodes that should be considered changepoints. For most use cases, "SS" nodes would not be considered a changepoint
+                 node_class_multipliers={}, # Dict that allow the user to apply class multipliers to linear paddings [i.e. {'AD':2.0}]
+
+                 # Miscellaneous
+                 input_dtype=np.float32,    # dtype to cast all inputs to
+                 sort_input_features=True,  # whether to sort input features alphabetically - this has no effect on the training, but helps with reproducibility when loading scalers & models from different sources
+                 verbose=1,                 # verbosity
+                 seed=42,                   # seed for shuffling etc.
+                 deepcopy=True              # whether to make a deepcopy of the input dataframe (avoids pythonic 'bugs')
+                 ):
         
         assert(not((train_val_df_dict is None) and (test_df_dict is None)))
 
@@ -386,7 +409,7 @@ class DatasetGenerator():
 
         # Drop all of the columns we dont need to preserve memory
         self._input_features = list(dict.fromkeys(self._input_features)) # remove duplicates
-        if sort_inputs:
+        if sort_input_features:
             # sort to improve compatibility between models trained from different sources (namely sweeper and notebook)
             self._input_features.sort()
             self._overview_features_mean.sort()
@@ -435,6 +458,12 @@ class DatasetGenerator():
                                   convolve_input_stride,
                                   padding,
                                   verbose=1):
+        """Method to create the actual dataset from the preprocessed dataframes. This will
+            a) apply the sliding-window approach
+            b) apply striding, both on object-level and as timewindow-level
+            c) define inputs / outputs of the final dataset
+        Everything is implemented in way which is optimized for memory efficiency over speed, so it should run on most systems.
+        """
         
         if stride > 1 and keep_label_stride > 1:
             print("Warning: stride > 1 and keep_label_stride > 1 may lead to unexpected or erronous behavior!")
@@ -456,10 +485,6 @@ class DatasetGenerator():
                                  (n_rows, len(label_features), oneshot_output_discretization) if label_features else 
                                  (1,)), dtype=np.int32 if not (('EW_Node_Location_nb' in label_features) or ('NS_Node_Location_nb' in label_features)) else np.float32)
         element_identifiers = np.zeros(shape=(n_rows, 2))
-
-        if only_ew_sk:
-            ew_sk_markers = np.empty(shape=(n_rows))
-            ew_sk_markers.fill(np.nan)
         
         current_row = 0
         #keys = list(keys, key=int) 
@@ -562,9 +587,6 @@ class DatasetGenerator():
             else:
                 element_identifiers[current_row:current_row+strided_obj_len] = extended_df[['ObjectID', 'TimeIndex']].to_numpy(dtype=np.float32)[0,:]
 
-            if only_ew_sk:
-                ew_sk_markers[current_row:current_row+strided_obj_len] = extended_df['EW_Type'][input_history_steps-1:-input_future_steps].to_numpy(dtype=np.int32)[obj_indices_to_keep]
-
             # advance to next object
             current_row+=strided_obj_len
 
@@ -575,16 +597,6 @@ class DatasetGenerator():
         inputs_overview = inputs_overview[:current_row]
         labels = labels[:current_row]
         element_identifiers = element_identifiers[:current_row]
-
-        if only_ew_sk:
-            # keep all fields where EW is stationkeeping
-            ew_nk_label = self._type_label_encoder.transform(['NK'])[0]
-            ew_sk_markers = ew_sk_markers[:current_row]
-            ew_sk_fields = np.argwhere(ew_sk_markers != ew_nk_label)[:,0]
-            inputs = inputs[ew_sk_fields]
-            inputs_overview = inputs_overview[ew_sk_fields]
-            labels = labels[ew_sk_fields]
-            element_identifiers = element_identifiers[ew_sk_fields]
             
         # finally, create the dataset
         # this is done on the CPU, not because it makes sense, but because I am working with some seriously limited hardware here
@@ -608,24 +620,25 @@ class DatasetGenerator():
         return dataset
 
     def get_datasets(self,
-                     batch_size=None,
-                     label_features=['EW', 'EW_Node', 'EW_Type', 'NS', 'NS_Node', 'NS_Type'],
-                     with_identifier=False,
-                     only_nodes=False,
-                     only_ew_sk=False,
-                     overview_as_second_input=False,
-                     oneshot_input_discretization=1,
-                     oneshot_output_discretization=1,
-                     shuffle=True,
-                     train_keys=None,
-                     val_keys=None,
-                     test_keys=None,
-                     convolve_input_stride=True,
-                     stride=1,
-                     keep_label_stride=1,
-                     stride_offset=0,
+                     batch_size=None,                       # batch size
+                     label_features=['EW_Type', 'NS_Type'], # which features to use as labels
+                     with_identifier=False,                 # include an additional column in the dataframes that encodes timestamp & objectID. Necessary for inference, disable for training
+                     only_nodes=False,                      # only include nodes
+                     only_ew_sk=False,                      # deprecated      
+                     overview_as_second_input=False,        # wether overview-features should be passed to the model as a seperate ("global") input
+                     oneshot_input_discretization=1,        # input discretization for oneshot models
+                     oneshot_output_discretization=1,       # output discretization for oneshot models
+                     shuffle=True,                          # shuffle the dataset after each epoch
+                     train_keys=None,                       # train keys. If None, default train keys are taken
+                     val_keys=None,                         # val keys. If None, default val keys are taken
+                     test_keys=None,                        # test keys. If None, default test keys are taken
+                     convolve_input_stride=True,            # performa avg-pooling for the input stride
+                     stride=1,                              # keep only every nth timeindex of the object
+                     keep_label_stride=1,                   # keep only every nth timeindex of the object AND all locations where labels are >0.0
+                     stride_offset=0,                       # offset at which striding is started
                      verbose=0):
-        """Get the datasets as defined by the dataset_generator. If no keys are provided, the method assumes the default train/val/test keys"""
+        """Get the datasets as defined by the dataset_generator.
+        If no keys are provided, the method assumes the default train/val/test keys"""
                 
         # create datasets
         train_keys = self._train_keys if train_keys is None else train_keys
@@ -670,6 +683,7 @@ class DatasetGenerator():
         return datasets
     
     def plot_dataset_item(self, ds_with_identifier, objectid, timeindex):
+        """Plot a dataset element at the specified objectid and timeindex. For debugging & visualization purposes."""
         import matplotlib.pyplot as plt # the import is placed down here so that plt is not required in the docker container
 
         # plot random dataset item for debugging

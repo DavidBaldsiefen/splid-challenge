@@ -10,6 +10,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from base import datahandler, prediction_models, evaluation, utils, localizer
 
+# Useful methods to perform SHAP feature importance analysis. https://github.com/shap/shap
 
 def get_shap_values(model, X_t, X_v):
     #tf.compat.v1.disable_eager_execution() # sometimes needed for compateblity

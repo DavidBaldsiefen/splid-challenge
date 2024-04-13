@@ -36,7 +36,7 @@ ______________________________________________________________________
 ├── node_localizer.ipynb     # Jupyter notebook to train, evaluate and explore the changepoint-detection algorithm
 ├── classifier_sweeper.py    # Code to execute thorough parameter studies for the classifier
 ├── localizer_sweeper.py     # Code to execute thorough parameter studies for the localizer
-├── submission.py            # File to execute the full inference algorithm (changepoint localization, classification, postprocessing)
+└── submission.py            # File to execute the full inference algorithm (changepoint localization, classification, postprocessing)
 ```
 
 ## Installation
@@ -51,9 +51,9 @@ The dataset directory should look like this:
 dataset/
 └── phase_2/
     ├── test/
-    ├── train/
-    ├── test_labels.csv
-    └── train_labels.csv
+    ├── training/
+    ├── test_label.csv
+    └── train_label.csv
 ```
 
 A `conda` installation is recommended:

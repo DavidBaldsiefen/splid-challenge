@@ -21,8 +21,8 @@ def get_z_from_xyz(x,y,z):
 
 def create_prediction_df(ds_gen,
                          model,
-                         convolve_input_stride=True,
-                         stateful=False,
+                         convolve_input_stride=True, # whether the input stride should be a simple stride or an avg-pooling operation
+                         stateful=False,    # deprecated
                          ds_type='train',
                          output_dirs=['EW', 'NS'],
                          only_ew_sk=False, 
@@ -31,6 +31,10 @@ def create_prediction_df(ds_gen,
                          prediction_batch_size=128, # number of objects to predict at a time
                          prediction_stride=1,
                          verbose=1):
+    """Use the provided model to predict on the desired dataset specified by ds_type (train/val/test).
+       The outputs are not postprocessed any further.
+       Reduce the prediction_batch_size on systems with limited memory."""
+    
     if ds_type=='test' and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
     
@@ -102,7 +106,6 @@ def create_prediction_df(ds_gen,
         gc.collect()
 
     # now create df by concatenating all the individual lists
-    # TODO: make compatible with one and two outputs
     all_identifiers = np.concatenate(all_identifiers)
     all_predictions = np.concatenate(all_predictions, axis=0 if len(output_dirs)==1 else 1)#, axis=1)
 
@@ -117,6 +120,7 @@ def create_prediction_df(ds_gen,
     return df
 
 def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'], object_ids=[1], threshold=50.0, zoom=False):
+    """Plot the linear labels and predictions for the given objects."""
     import matplotlib.pyplot as plt
 
     ds, v_ds = ds_gen.get_datasets(batch_size=256,
@@ -135,8 +139,6 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
 
     df = pd.DataFrame(df_columns, columns=['ObjectID', 'TimeIndex'] + label_features + [ft+'_pred' for ft in label_features], dtype=np.int32)
 
-    # TODO: zoom on main parts, plot postprocessed preds
-    # TODO: add nice breaks https://stackoverflow.com/questions/5656798/is-there-a-way-to-make-a-discontinuous-axis-in-matplotlib
     if zoom:
         if len(label_features) == 1:
             timeindices = df.index[(df[label_features[0]] >= threshold) | (df[f'{label_features[0]}_pred'] >= threshold)].to_numpy() # only consider locations with timeindex > 1
@@ -166,10 +168,17 @@ def postprocess_predictions(preds_df,
                             thresholds=[50.0], # if len2, gets interpreted as per-direction threshold
                             add_initial_node=False,
                             clean_consecutives=True,
-                            clean_neighbors_below_distance=-1,
-                            legacy=False,
+                            merge_neighbors_below_distance=-1,
+                            legacy=False,   # deprecated
                             deepcopy=True):
-    """Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
+    """
+    Postprocess predictions. This will 
+        a) apply the threshold(s)
+        b) combine consecutive predictions into one (i.e. [0,1,1,1,0] -> [0,0,1,0,0])
+        c) combine consecutive predictions with gaps < merge_neighbors_below_distance (i.e. [0,1,0,1,0] -> [0,0,1,0,0])
+        d) add initial (SS) nodes
+        e) bring it all into the submission format
+    Expects input df with columns [ObjectID, TimeIndex, EW_Loc, NS_Loc]
     """
 
     df = preds_df.copy(deep=deepcopy)
@@ -182,7 +191,7 @@ def postprocess_predictions(preds_df,
         df['Any_Loc'] = df['Any_Loc'] | df[f'{dir}_Loc']
     
     # remove consecutive location predictions, and replace them only with their center
-    if clean_consecutives and not legacy:
+    if clean_consecutives:
         dir_dfs = []
         for dir in dirs:
             dir_df = df.loc[df[f'{dir}_Loc'] == True].copy().sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
@@ -198,14 +207,8 @@ def postprocess_predictions(preds_df,
     # remove duplicates - if there are two detections at the same place (one for each dir), they will still be maintained
     df = df.loc[df.duplicated(keep='first')==False].reset_index(drop=True)
 
-    if clean_consecutives and legacy:    # Legacy method
-        df = df.loc[(df['Any_Loc'] == True)].sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
-        df['consecutive'] = (df['TimeIndex'] - df['TimeIndex'].shift(1) != 1).cumsum()
-        # Filter rows where any number of consecutive values follow each other
-        df=df.groupby('consecutive').apply(lambda sub_df: sub_df.iloc[int(len(sub_df)/2), :]).reset_index(drop=True).drop(columns=['consecutive'])
-
     # remove TPs that are just too close together, as its likely they are duplicate detections
-    if clean_neighbors_below_distance>0:
+    if merge_neighbors_below_distance>0:
         dir_dfs = []
         for dir in dirs:
             # compute diffs between current and previous timeindex
@@ -214,7 +217,7 @@ def postprocess_predictions(preds_df,
             sub_df.loc[(df['TimeIndex'] > 0), 'diff'] = sub_df.loc[(df['TimeIndex'] > 0), 'TimeIndex'].diff()
             sub_df.loc[sub_df['diff']<0, 'diff'] = 3000
             # find the distances below the threshold
-            short_distance_indices = sub_df.index[sub_df['diff']<clean_neighbors_below_distance]
+            short_distance_indices = sub_df.index[sub_df['diff']<merge_neighbors_below_distance]
             # for each diff loc where the previous entry is of the same object, replace both detections with one in the middle
             for index in short_distance_indices:
                 if index == 0:
@@ -256,9 +259,8 @@ def perform_submission_pipeline(localizer_dir,
                                 split_dataframes,
                                 output_dirs,
                                 thresholds,
-                                legacy_clean_consecutives=False,
                                 convolve_input_stride=True,
-                                clean_neighbors_below_distance=-1,
+                                merge_neighbors_below_distance=-1,
                                 non_transform_features=[],
                                 diff_transform_features=[],
                                 legacy_diff_transform=True,
@@ -323,12 +325,22 @@ def perform_submission_pipeline(localizer_dir,
                                                 thresholds=thresholds,
                                                 add_initial_node=False, # Do not add initial nodes just yet
                                                 clean_consecutives=True,
-                                                legacy=legacy_clean_consecutives,
-                                                clean_neighbors_below_distance=clean_neighbors_below_distance)
+                                                merge_neighbors_below_distance=merge_neighbors_below_distance)
     
     return subm_df
 
-def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_initial_node=False, return_scores=False, nodes_to_consider=['ID', 'IK', 'AD'], verbose=1):
+def evaluate_localizer(subm_df,
+                       gt_path,
+                       object_ids,
+                       dirs=['EW', 'NS'],
+                       with_initial_node=False,
+                       return_scores=False,
+                       nodes_to_consider=['ID', 'IK', 'AD'],
+                       verbose=1):
+    """Evaluate the provided submission file of the localizer.
+    By default, initial (SS) nodes are ignored as they are not truly "detected"
+    """
+
     from base import evaluation
     # Load gt
     ground_truth_df = pd.read_csv(gt_path)
@@ -407,19 +419,25 @@ def evaluate_localizer(subm_df, gt_path, object_ids, dirs=['EW', 'NS'], with_ini
     
 def perform_evaluation_pipeline(ds_gen,
                                 model,
-                                ds_type,
-                                gt_path,
-                                output_dirs,
-                                thresholds,
-                                prediction_batch_size=64,
-                                convolve_input_stride=True,
-                                object_limit=None,
-                                with_initial_node=False,
+                                ds_type,                    # type of dataset to evaluate (train/val/test)
+                                gt_path,                    # path to the ground truth file
+                                output_dirs,                # which directions the model's outputs correspond to (in order)
+                                thresholds,                 # list of thresholds to evaluate
+                                prediction_batch_size=64,   # number of objects to predict at a time
+                                convolve_input_stride=True, # wether to use a simple stride or perform average-pooling
+                                object_limit=None,          # maximum number of objects to include in evaluation (helps save performance)
+                                with_initial_node=False,    # whether to include the initial node in the evaluation
                                 nodes_to_consider=['ID', 'IK', 'AD'],
-                                prediction_stride=1,
-                                clean_neighbors_below_distance=-1,
-                                legacy_postprocessing=False,
+                                prediction_stride=1,        # whether to predict on every timeindex
+                                merge_neighbors_below_distance=-1, # wether neighboring predictions below this distance should be merged
                                 verbose=2):
+    """Perform a whole localizer prediction pipeline. This includes
+        a) creating predictions
+        b) postprocessing predictions
+        c) evaluating several thresholds & threshold combinations
+    
+    A reduced prediction_batch_size can be helpful on systems with limited memory availability.
+    """
     
     preds_df = create_prediction_df(ds_gen=ds_gen,
                                 model=model,
@@ -446,8 +464,7 @@ def perform_evaluation_pipeline(ds_gen,
                                             thresholds=[threshold],
                                             add_initial_node=with_initial_node,
                                             clean_consecutives=True,
-                                            legacy=legacy_postprocessing,
-                                            clean_neighbors_below_distance=clean_neighbors_below_distance,
+                                            merge_neighbors_below_distance=merge_neighbors_below_distance,
                                             deepcopy=False)
             subm_dfs.append(subm_df)
 
@@ -483,8 +500,7 @@ def perform_evaluation_pipeline(ds_gen,
                                             thresholds=best_thresholds_per_dir,
                                             add_initial_node=with_initial_node,
                                             clean_consecutives=True,
-                                            legacy=legacy_postprocessing,
-                                            clean_neighbors_below_distance=clean_neighbors_below_distance,
+                                            merge_neighbors_below_distance=merge_neighbors_below_distance,
                                             deepcopy=False)
         subm_df = subm_df.sort_values(['ObjectID', 'TimeIndex']).reset_index(drop=True)
         scores = evaluate_localizer(subm_df=subm_df,

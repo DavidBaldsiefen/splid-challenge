@@ -3,7 +3,7 @@ import pandas as pd
 import pickle
 import tensorflow as tf
 import gc
-from base import datahandler
+from base import datahandler, prediction_models
 
 # Helper lambdas
 def get_x_from_xy(x,y):
@@ -18,6 +18,8 @@ def get_z_from_xyz(x,y,z):
     return z
 
 def plot_confusion_matrix(ds_gen, ds_with_labels, model, output_names=['EW_Type', 'NS_Type']):
+    """Plot a confusion matrix based on the provided model & dataset"""
+    # imports are within the method to allow lightweight docker container
     import matplotlib.pyplot as plt
     import tensorflow as tf
     import seaborn as sns
@@ -60,6 +62,11 @@ def create_prediction_df(ds_gen, model,
                          ds_batch_size=512,
                          prediction_batch_size=128, # number of objects to predict at a time
                          verbose=1):
+    """Use the provided model to predict on the desired dataset specified by ds_type (train/val/test).
+       The outputs are converted based on the label_encoders in the DatasetGenerator.
+       To use the only_nodes parameters, the dataset must be labelled.
+       Reduce the prediction_batch_size on systems with limited memory."""
+
     if ds_type=='test' and object_limit is not None:
         print("Warning: Object limit applied on test set - intentional?")
 
@@ -403,6 +410,7 @@ def perform_submission_pipeline(classifier_dir,
                                 per_object_scaling=False,
                                 ):
     """Perform the entire submission pipeline, i.e. create ds_gen, run classifier, perform postprocessing"""
+    
     print(f"Classifying locations using model \"{classifier_dir}\" and scaler \"{scaler_dir}\"")
 
     scaler = pickle.load(open(scaler_dir, 'rb')) if scaler_dir is not None else None
