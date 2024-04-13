@@ -306,7 +306,7 @@ def perform_submission_pipeline(localizer_dir,
                                             custom_scaler=scaler,
                                             unify_value_ranges=True,
                                             input_dtype=np.float32,
-                                            sort_inputs=True,
+                                            sort_input_features=True,
                                             seed=69)
 
     

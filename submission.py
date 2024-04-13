@@ -231,7 +231,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     add_daytime_feature=False,
                                                     add_yeartime_feature=False,
                                                     add_linear_timeindex=True,
-                                                    linear_timeindex_as_overview=True,
+                                                    linear_timeindex_as_overview=False,
                                                     input_history_steps=32,
                                                     input_future_steps=256,
                                                     input_stride=1,
@@ -253,6 +253,7 @@ if not DEBUG_MODE:
     time.sleep(360) # TEMPORARY FIX TO OVERCOME EVALAI BUG
     print("Finished sleeping")
 else:
+    # Evaluate the results
     print("------------------------------------------------------")
     print("Evaluating...")
     ground_truth_df = pd.read_csv(DEBUG_LABELS_DIR)
