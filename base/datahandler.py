@@ -269,6 +269,8 @@ class DatasetGenerator():
         if diff_transform_features:
             if verbose > 0:
                 print(f"Diff Transforming features: {diff_transform_features}")
+                if legacy_diff_transform:
+                    print("Applying legacy diff transformation, i.e. without proper wraparounds")
             for ft in diff_transform_features:
                 newft = ft + ' (diff)'
                 wraparound_offset = ([180, -180] if ft in ['Longitude (deg)', 'Argument of Periapsis (deg)', 'RAAN (deg)'] else
