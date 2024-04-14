@@ -11,8 +11,7 @@ import pickle
 from base import datahandler, prediction_models, utils, localizer
 
 
-
-
+# Callback which helps with memory issues when working on slow computers
 class ClearMemoryCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         gc.collect()
@@ -33,8 +32,8 @@ def parameter_sweep(config=None):
         challenge_data_dir = Path('dataset/phase_2/')
         data_dir_train_val = challenge_data_dir / "training"
         data_dir_test = challenge_data_dir / "test"
-        labels_dir_train_val = challenge_data_dir / 'train_labels.csv'
-        labels_dir_test = challenge_data_dir / 'test_labels.csv'
+        labels_dir_train_val = challenge_data_dir / 'train_label.csv'
+        labels_dir_test = challenge_data_dir / 'test_label.csv'
         split_dataframes_train_val = datahandler.load_and_prepare_dataframes(data_dir_train_val, labels_dir_train_val)
         split_dataframes_test = datahandler.load_and_prepare_dataframes(data_dir_test, labels_dir_test)
 
@@ -121,7 +120,7 @@ def parameter_sweep(config=None):
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
-                                                sort_inputs=True,
+                                                sort_input_features=True,
                                                 seed=11,
                                                 deepcopy=False)
         print('Trn-keys:', ds_gen.train_keys[:10])
@@ -188,7 +187,7 @@ def parameter_sweep(config=None):
                             epochs=epochs,
                             early_stopping=0,
                             target_metric='val_loss',
-                            save_best_only=True,
+                            save_best_only=False,
                             plot_hist=False,
                             callbacks=[WandbMetricsLogger(initial_global_step=global_wandb_step), ClearMemoryCallback()],
                             verbose=2)
@@ -201,7 +200,7 @@ def parameter_sweep(config=None):
             scores = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
                                         'val',
-                                        gt_path = challenge_data_dir / 'train_labels.csv',
+                                        gt_path = labels_dir_train_val,
                                         convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                         output_dirs=directions,
                                         prediction_batch_size=96,
@@ -249,7 +248,7 @@ def parameter_sweep(config=None):
         evaluation_results_train = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
                                         'train',
-                                        gt_path = challenge_data_dir / 'train_labels.csv',
+                                        gt_path = labels_dir_train_val,
                                         convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                         output_dirs=directions,
                                         prediction_batch_size=96,
@@ -266,7 +265,7 @@ def parameter_sweep(config=None):
         evaluation_results_test = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
                                         'test',
-                                        gt_path = challenge_data_dir / 'test_labels.csv',
+                                        gt_path = labels_dir_test,
                                         convolve_input_stride=config.ds_gen['convolve_input_stride'],
                                         output_dirs=directions,
                                         prediction_batch_size=96,
@@ -336,7 +335,7 @@ sweep_configuration = {
                                                    ]},
             "pad_location_labels" : {"values": [0]},
             "nonbinary_padding" : {"values": [
-                                              [110.0, 70.0, 49.0, 34.0, 24.0, 12.0], # TODO: try wide padding with very low values
+                                              [100.0, 70.0, 49.0, 34.0, 24.0, 16.0],
                                               #[11.0, 7.0, 4.9, 3.4, 2.4, 1.2]
                                               ]},
             "input_stride" : {"values": [2,3,4]},

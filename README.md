@@ -30,13 +30,13 @@ ______________________________________________________________________
 │   ├── shap_analysis.py     # Code to perform SHAP feature analysis
 │   └── utils.py             # Miscellaneous code
 │
-├── dataset/                 # Dataset directory
-├── models/                  # Trained models and pre-fitted scalers
-├── node_classifier.ipynb    # Jupyter notebook to train, evaluate and explore the classifier algorithm
-├── node_localizer.ipynb     # Jupyter notebook to train, evaluate and explore the changepoint-detection algorithm
-├── classifier_sweeper.py    # Code to execute thorough parameter studies for the classifier
-├── localizer_sweeper.py     # Code to execute thorough parameter studies for the localizer
-└── submission.py            # File to execute the full inference algorithm (changepoint localization, classification, postprocessing)
+├── dataset/                    # Dataset directory
+├── models/                     # Trained models and pre-fitted scalers
+├── classifier_playground.ipynb # Jupyter notebook to train, evaluate and explore the classifier algorithm
+├── classifier_sweeper.py       # Code to execute thorough parameter studies for the classifier
+├── localizer_playground.ipynb  # Jupyter notebook to train, evaluate and explore the changepoint-detection algorithm
+├── localizer_sweeper.py        # Code to execute thorough parameter studies for the localizer
+└── submission.py               # File to execute the full inference algorithm (changepoint localization, classification, postprocessing)
 ```
 
 ## Installation
