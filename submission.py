@@ -18,24 +18,18 @@ if DEBUG_MODE:
 LOCALIZER_ADIK_DIR = Path(('' if DEBUG_MODE else '/') + 'models/localizer_adik_model.hdf5')
 SCALER_ADIK_DIR = Path(('' if DEBUG_MODE else '/') + 'models/localizer_adik_scaler.pkl')
 
-#LOCALIZER_ADIK_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_jrlrqj4g.hdf5')
-#SCALER_ADIK_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_jrlrqj4g.pkl')
-
 LOCALIZER_ID_DIR = Path(('' if DEBUG_MODE else '/') + 'models/localizer_id_model.hdf5')
 SCALER_ID_DIR = Path(('' if DEBUG_MODE else '/') + 'models/localizer_id_scaler.pkl')
 
-#LOCALIZER_ID_DIR = Path("/home/david/Code/splid-challenge/submission/models/model_x9fwigu5.hdf5")
-#SCALER_ID_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_x9fwigu5.pkl')
-
 CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/classifier_model.hdf5')
 SCALER_CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/classifier_scaler.pkl')
-#CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/model_zhkytvx1.hdf5')
-#SCALER_CLASSIFIER_DIR = Path(('submission/' if DEBUG_MODE else '/') + 'models/scaler_zhkytvx1.pkl')
 
-TEST_DATA_DIR = Path(('dataset/phase_2/' if DEBUG_MODE else '/dataset/') + 'test') #!!!
+TEST_DATA_DIR = Path(('dataset/phase_2/' if DEBUG_MODE else '/dataset/') + 'test')
 DEBUG_LABELS_DIR = Path('dataset/phase_2/test_label.csv')
 
 TEST_PREDS_FP = Path(('' if DEBUG_MODE else '/submission/') + 'submission.csv')
+
+FIXED_DIFF_TRANSFORM_MODELS = False
 
 # Load Data
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
@@ -68,7 +62,7 @@ adik_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ADI
                                                                             'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
-                                                    legacy_diff_transform=True,
+                                                    legacy_diff_transform=not FIXED_DIFF_TRANSFORM_MODELS,
                                                     sin_transform_features=[#'Eccentricity',
                                                                             #'Semimajor Axis (m)',
                                                                             #'Inclination (deg)',
@@ -116,7 +110,7 @@ id_subm_df = localizer.perform_submission_pipeline(localizer_dir=LOCALIZER_ID_DI
                                                                             'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
-                                                    legacy_diff_transform=True,
+                                                    legacy_diff_transform=not FIXED_DIFF_TRANSFORM_MODELS,
                                                     sin_transform_features=[#'Eccentricity',
                                                                             #'Semimajor Axis (m)',
                                                                             #'Inclination (deg)',
@@ -202,7 +196,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                                             #'Longitude (deg)',
                                                                             #'Latitude (deg)'
                                                                             ],
-                                                    legacy_diff_transform=True,
+                                                    legacy_diff_transform=not FIXED_DIFF_TRANSFORM_MODELS,
                                                     sin_transform_features=[ #'Inclination (deg)',
                                                                             #'RAAN (deg)',
                                                                             'Argument of Periapsis (deg)',
@@ -231,7 +225,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     add_daytime_feature=False,
                                                     add_yeartime_feature=False,
                                                     add_linear_timeindex=True,
-                                                    linear_timeindex_as_overview=False,
+                                                    linear_timeindex_as_overview=FIXED_DIFF_TRANSFORM_MODELS, # the final classifier was trained without the linear timeindex as overview. In practise, this makes almost no difference
                                                     input_history_steps=32,
                                                     input_future_steps=256,
                                                     input_stride=1,
@@ -280,7 +274,7 @@ else:
     # perform no-class evaluation as well
     evaluator = evaluation.NodeDetectionEvaluator(ground_truth=ground_truth_df, participant=results, ignore_classes=True)
     precision, recall, f2, rmse, total_tp, total_fp, total_fn, total_df = evaluator.score()
-    print(f"Scores when ignoring classification:\n\tPrecision: {precision:.2f} Recall: {recall:.2f} F2: {f2:.3f} | TP: {total_tp} FP: {total_fp} FN: {total_fn}")
+    print(f"Scores when ignoring classification: P: {precision:.2f} R: {recall:.2f} F2: {f2:.3f} | TP: {total_tp} FP: {total_fp} FN: {total_fn}")
     print("------------------------------------------------------")
 
     print("Done.")
