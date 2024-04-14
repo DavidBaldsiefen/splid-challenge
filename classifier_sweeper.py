@@ -117,7 +117,7 @@ def parameter_sweep(config=None):
                                                 input_history_steps=config.ds_gen['input_history_steps'],
                                                 input_future_steps=config.ds_gen['input_future_steps'],
                                                 input_dtype=np.float32,
-                                                sort_inputs=True,
+                                                sort_input_features=True,
                                                 seed=11,
                                                 deepcopy=False)
         
@@ -193,7 +193,7 @@ def parameter_sweep(config=None):
             print(f"Saving scaler to \"{scaler_path}\"")
             pickle.dump(ds_gen.scaler, open(scaler_path, 'wb'))
             wandb.save(scaler_path)
-            print(f"Scaler means & scale: {ds_gen.scaler.mean_} {ds_gen.scaler.scale_}")
+            print(f"Scaler mean_ & scale_: {ds_gen.scaler.mean_} {ds_gen.scaler.scale_}")
 
         datasets = None
         del datasets
@@ -300,7 +300,7 @@ def parameter_sweep(config=None):
 
 sweep_configuration = {
     "method": "grid",
-    "metric": {"goal": "maximize", "name": "Precision"},
+    "metric": {"goal": "maximize", "name": "test_Precision"},
     #"run_cap":60,
     "parameters": {
        "input_features" : {
@@ -333,9 +333,9 @@ sweep_configuration = {
                 'Semimajor_Axis' : {"values": ['diff']},
                 'Inclination' : {"values": ['diff']},
                 'RAAN' : {"values": ['non']},
-                'Argument_of_Periapsis' : {"values": ['sin', 'diff']},
+                'Argument_of_Periapsis' : {"values": ['sin']},
                 'True_Anomaly' : {"values": ['diff']},
-                'Longitude' : {"values": ['sin', 'diff']},
+                'Longitude' : {"values": ['sin']},
                 'Latitude' : {"values": ['non']},
             }
         },
@@ -355,13 +355,13 @@ sweep_configuration = {
                                                           ]},
             "stride" : {"values": [1]},
             "keep_label_stride" : {"values": [1000]}, # if 1, keep only labels
-            "input_stride" : {"values": [5]},
+            "input_stride" : {"values": [1]},
             "convolve_input_stride" : {"values": [True]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [True]},
-            "linear_timeindex_as_overview" : {"values": [True]},
+            "linear_timeindex_as_overview" : {"values": [False]},
             "input_history_steps" : {"values": [32]},
             "input_future_steps" : {"values": [256]},
             "legacy_diff_transform" : {"values": [False]},
@@ -390,7 +390,7 @@ sweep_configuration = {
                                         #[[64, True, 1, 8]],
                                         #[[96, True, 1, 8]],
                                         #[[64, True, 6, 1]],
-                                        [[64, True, 4, 1]],
+                                        [[64, True, 6, 1]],
                                         #[[64, True, 4, 1]],
                                         #[[64, True, 3, 1]],
                                         #[[128, True, 10]],
@@ -409,7 +409,7 @@ sweep_configuration = {
             "mixed_batchnorm_before_relu" : {"values": [False]},
             "mixed_dropout_dense" : {"values": [0.0]},
             "mixed_dropout_cnn" : {"values": [0.0]},
-            "mixed_dropout_lstm" : {"values": [0.2]},
+            "mixed_dropout_lstm" : {"values": [0.0]},
             "lr_scheduler" : {"values": [[0.0035, 700, 0.9]]},
             "optimizer" : {"values": ['adam']},
             "seed" : {"values": [42]},
@@ -445,7 +445,6 @@ sweep_configuration = {
     
 }
 
-# TODO: Somehow collect information on where the FP/FN occur, which nodes etc
 ##########################################################
 # Start the actual sweep
 wandb.login()

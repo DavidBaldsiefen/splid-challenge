@@ -21,11 +21,6 @@ def parameter_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
 
-        # for key in ['Precision', 'Recall', 'F2', 'TP', 'RMSE', 'FP', 'FN']:
-        #     wandb.define_metric(f'{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
-        #     wandb.define_metric(f'val/{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
-        #     wandb.define_metric(f'train/{key}', summary="max" if key in ['Precision', 'Recall', 'F2', 'TP'] else 'min')
-
         # =================================Data Loading & Preprocessing================================================
 
         # Load data
@@ -260,7 +255,6 @@ def parameter_sweep(config=None):
         for key,value in evaluation_results_train[0].items():
             wandb.run.summary[f'train/{key}'] = value
 
-        train_object_limit = 96
         print(f"Running test-evaluation:")
         evaluation_results_test = localizer.perform_evaluation_pipeline(ds_gen,
                                         model.model,
@@ -338,14 +332,14 @@ sweep_configuration = {
                                               [100.0, 70.0, 49.0, 34.0, 24.0, 16.0],
                                               #[11.0, 7.0, 4.9, 3.4, 2.4, 1.2]
                                               ]},
-            "input_stride" : {"values": [2,3,4]},
+            "input_stride" : {"values": [2]},
             "per_object_scaling" : {"values" : [False]},
             "add_daytime_feature" : {"values": [False]},
             "add_yeartime_feature" : {"values": [False]},
             "add_linear_timeindex" : {"values": [False]},
             "linear_timeindex_as_overview" : {"values": [True]},
             "convolve_input_stride" : {"values": [True]},
-            "legacy_diff_transform" : {"values": [True, False]},
+            "legacy_diff_transform" : {"values": [False]},
             "class_multiplier_ID" : {"values": [0.0]},
             "class_multiplier_IK" : {"values": [1.0]},
             "class_multiplier_AD" : {"values": [1.0]},
@@ -358,9 +352,7 @@ sweep_configuration = {
             "conv1d_layers" : {"values": [#[],
                                           #[[64,11,1,1,1],[64,11,1,1,1],[48,11,2,1,1]],
                                           #[[64,9,1,1,1],[64,9,1,1,1],[48,9,2,1,1]],
-                                          #[[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
                                           [[64,7,1,1,1],[64,7,1,1,1],[48,7,2,1,1]],
-                                          #[[64,7,1,1,1],[64,7,1,1,1],[48,7,1,1,1]],
                                           #[[64,13,12,1,1]],
                                           #[[64,23,20,1,1]],
                                           #[[64,7,2,1,1],[64,7,3,1,1]],
