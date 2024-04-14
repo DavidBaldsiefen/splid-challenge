@@ -92,10 +92,17 @@ class Prediction_Model():
 
     def load_model(self, path):
         self._model = tf.keras.models.load_model(path)
+
+    def save(self, path):
+        self._model.save(path)
     
     @property
     def model(self):
         return self._model
+    
+    @property
+    def layers(self):
+        return self._model.layers
     
     @property
     def seed(self):
@@ -133,13 +140,13 @@ class Dense_NN(Prediction_Model):
                  split_dense=False,
                  split_lstm=False,
                  cnn_lstm_order='cnn_lstm', # 'lstm_cnn'
-                 mixed_batchnorm_before_relu=True,
+                 mixed_batchnorm_before_relu=False,
                  conv1d_layers=[], # [filters, kernel_size, kernel_stride, dilation_rate, maxpool]
                  convlstm1d_layers=[], # deprecated
                  conv2d_layers=[], # deprecated
-                 lstm_layers=[], # [units, return_sequence, maxpool]
+                 lstm_layers=[], # [units, return_sequence, maxpool, avgpool]
                  dense_layers=[32,32],
-                 deep_layer_in_output=False, # depcrecated
+                 deep_layer_in_output=False, # deprecated
                  l1_reg=0.0,
                  l2_reg=0.0,
                  lr_scheduler=[],
@@ -149,7 +156,8 @@ class Dense_NN(Prediction_Model):
                  asymmetric_loss=0.0,
                  optimizer='adam',
                  seed=None):
-        "Create a model with dense and convolutional layers, meant to predict a single output feature at one timestep"
+        """Create a model consisting of LSTM, CNN, Dense and Regularization/Pooling layers.
+        Supports multiple in- and outputs based on the provided datset specifications."""
         super().__init__(seed)
 
         assert(output_type in ['classification', 'binary', 'regression', 'oneshot'])
@@ -162,10 +170,8 @@ class Dense_NN(Prediction_Model):
             in_shape_global = ds.element_spec[0]['global_in'].shape.as_list()
         else:
             global_input=False
-            in_shape_global = (42,42)
+            in_shape_global = (1024,1024)
         in_shape_global = in_shape_global[1:] if in_shape_global[0] is None else in_shape_global # remove batch dimension
-        lstm_layers_global = [(units//2, return_sequence, maxpool, avgpool) for (units, return_sequence, maxpool, avgpool) in lstm_layers]
-        conv1d_layers_global = [(filters//2, kernel_size, kernel_stride, dilation_rate, maxpool) for (filters, kernel_size, kernel_stride, dilation_rate, maxpool) in conv1d_layers]
 
         if len(ds.element_spec[1]) != 2:
             split_cnn=False
@@ -174,131 +180,69 @@ class Dense_NN(Prediction_Model):
 
         # input layer
         inputs_local = layers.Input(shape=in_shape_local, name='local_in')
-        x_local = inputs_local
+        x__L_local = inputs_local
 
         inputs_global = layers.Input(shape=in_shape_global, name='global_in')
-        x_global = inputs_global
+        x__L_global = inputs_global
 
         if input_dropout > 0.0:
-            x_local = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x_local)
-            x_global = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x_global)
+            x__L_local = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x__L_local)
+            x__L_global = layers.Dropout(input_dropout, seed=self._rnd_gen.integers(9999999))(x__L_global)
 
         # STACKS
-        split_x = False
         if cnn_lstm_order == 'cnn_lstm':
-            if conv1d_layers:
-                if split_cnn:
-                    x_L_local = self.create_cnn_stack(x_L_local if split_x else x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L_local')
-                    x_R_local = self.create_cnn_stack(x_R_local if split_x else x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R_local')
-                    x_L_global = self.create_cnn_stack(x_L_global if split_x else x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L_global')
-                    x_R_global = self.create_cnn_stack(x_R_global if split_x else x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R_global')
-                    split_x = True
-                else:
-                    if split_x: 
-                        x_local = layers.Concatenate(axis=-1)([x_L_local, x_R_local])
-                        x_global = layers.Concatenate(axis=-1)([x_L_global, x_R_global])
-                    x_local = self.create_cnn_stack(x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='local')
-                    x_global = self.create_cnn_stack(x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='global')
-                    split_x = False
-                    
-            if lstm_layers:
-                if split_lstm:
-                    x_L_local = self.create_lstm_stack(x_L_local if split_x else x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='L_local')
-                    x_R_local = self.create_lstm_stack(x_R_local if split_x else x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='R_local')
-                    
-                    x_L_global = self.create_lstm_stack(x_L_global if split_x else x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='L_global')
-                    x_R_global = self.create_lstm_stack(x_R_global if split_x else x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='R_global')
-                    split_x = True
-                else:
-                    if split_x: 
-                        x_local = layers.Concatenate(axis=-1)([x_L_local, x_R_local])
-                        x_global = layers.Concatenate(axis=-1)([x_L_global, x_R_global])
-                    x_local = self.create_lstm_stack(x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='local')
-                    x_global = self.create_lstm_stack(x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='global')
-                    split_x = False
+            x_L_local, x_R_local, x_L_global, x_R_global = self.create_parallel_stack(split_cnn, x__L_local, None, x__L_global, None, 
+                                                                self.create_cnn_stack, 
+                                                                cnn_layers=conv1d_layers,
+                                                                dropout=mixed_dropout_cnn,
+                                                                batchnorm=mixed_batchnorm_cnn,
+                                                                batchnorm_before_relu=mixed_batchnorm_before_relu,
+                                                                l1=l1_reg,
+                                                                l2=l2_reg)
+            
+            x_L_local, x_R_local, x_L_global, x_R_global = self.create_parallel_stack(split_lstm, x_L_local, x_R_local, x_L_global, x_R_global, 
+                                                                self.create_lstm_stack, 
+                                                                lstm_layers=lstm_layers,
+                                                                dropout=mixed_dropout_lstm,
+                                                                batchnorm=mixed_batchnorm_lstm,
+                                                                l1=l1_reg,
+                                                                l2=l2_reg,
+                                                                return_sequences=False)
         else:
-            if lstm_layers:
-                if split_lstm:
-                    x_L_local = self.create_lstm_stack(x_L_local if split_x else x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='L_local')
-                    x_R_local = self.create_lstm_stack(x_R_local if split_x else x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='R_local')
-                    
-                    x_L_global = self.create_lstm_stack(x_L_global if split_x else x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='L_global')
-                    x_R_global = self.create_lstm_stack(x_R_global if split_x else x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='R_global')
-                    split_x = True
-                else:
-                    if split_x: 
-                        x_local = layers.Concatenate(axis=-1)([x_L_local, x_R_local])
-                        x_global = layers.Concatenate(axis=-1)([x_L_global, x_R_global])
-                    x_local = self.create_lstm_stack(x_local, lstm_layers, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='local')
-                    x_global = self.create_lstm_stack(x_global, lstm_layers_global, mixed_dropout_lstm, mixed_batchnorm_lstm,
-                                            l1_reg, l2_reg, return_sequences=False, name='global')
-                    split_x = False
-
-            if conv1d_layers:
-                if split_cnn:
-                    x_L_local = self.create_cnn_stack(x_L_local if split_x else x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L_local')
-                    x_R_local = self.create_cnn_stack(x_R_local if split_x else x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R_local')
-                    x_L_global = self.create_cnn_stack(x_L_global if split_x else x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L_global')
-                    x_R_global = self.create_cnn_stack(x_R_global if split_x else x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R_global')
-                    split_x = True
-                else:
-                    if split_x: 
-                        x_local = layers.Concatenate(axis=-1)([x_L_local, x_R_local])
-                        x_global = layers.Concatenate(axis=-1)([x_L_global, x_R_global])
-                    x_local = self.create_cnn_stack(x_local, conv1d_layers, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='local')
-                    x_global = self.create_cnn_stack(x_global, conv1d_layers_global, mixed_dropout_cnn,
-                                        mixed_batchnorm_cnn, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='global')
-                    split_x = False
-
+            x_L_local, x_R_local, x_L_global, x_R_global = self.create_parallel_stack(split_lstm, x__L_local, None, x__L_global, None, 
+                                                                self.create_lstm_stack, 
+                                                                lstm_layers=lstm_layers,
+                                                                dropout=mixed_dropout_lstm,
+                                                                batchnorm=mixed_batchnorm_lstm,
+                                                                l1=l1_reg,
+                                                                l2=l2_reg,
+                                                                return_sequences=False)
+            
+            x_L_local, x_R_local, x_L_global, x_R_global = self.create_parallel_stack(split_cnn, x_L_local, x_R_local, x_L_global, x_R_global, 
+                                                                self.create_cnn_stack, 
+                                                                cnn_layers=conv1d_layers,
+                                                                dropout=mixed_dropout_cnn,
+                                                                batchnorm=mixed_batchnorm_cnn,
+                                                                batchnorm_before_relu=mixed_batchnorm_before_relu,
+                                                                l1=l1_reg,
+                                                                l2=l2_reg)
+             
         # concatenate the local and global pathways here if applicable
         if global_input:
-            if split_x:
-                x_L = layers.Concatenate(axis=-1)([x_L_local, x_L_global])
-                x_R = layers.Concatenate(axis=-1)([x_R_local, x_R_global])
+            if x_R_local is not None:
+                x_L_local = layers.Concatenate(axis=-1)([x_L_local, x_L_global])
+                x_R_local = layers.Concatenate(axis=-1)([x_R_local, x_R_global])
             else:
-                x = layers.Concatenate(axis=-1)([x_local, x_global])
-        else:
-            if split_x:
-                x_L = x_L_local
-                x_R = x_R_local
-            else:
-                x = x_local
-
-        if dense_layers:
-            if split_dense:
-                x_L = self.create_dense_stack(x_L if split_x else x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='L')
-                x_R = self.create_dense_stack(x_R if split_x else x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='R')
-                split_x = True
-            else:
-                if split_x:
-                    x = layers.Concatenate(axis=-1)([x_L, x_R])
-                x = self.create_dense_stack(x, dense_layers, mixed_dropout_dense,
-                                            mixed_batchnorm_dense, mixed_batchnorm_before_relu, l1_reg, l2_reg, name='')        
-                split_x = False
+                x_L_local = layers.Concatenate(axis=-1)([x_L_local, x_L_global])
+        
+        x_L_local, x_R_local, x_L_global, x_R_global = self.create_parallel_stack(split_dense, x_L_local, x_R_local, x_L_global, x_R_global, 
+                                                                self.create_dense_stack, 
+                                                                dense_layers=dense_layers,
+                                                                dropout=mixed_dropout_dense,
+                                                                batchnorm=mixed_batchnorm_dense,
+                                                                batchnorm_before_relu=mixed_batchnorm_before_relu,
+                                                                l1=l1_reg,
+                                                                l2=l2_reg)
         
         # create outputs
         outputs = []
@@ -317,11 +261,11 @@ class Dense_NN(Prediction_Model):
             output_activation = final_activation if final_activation is not None else ('sigmoid' if output_type=='binary'
                                                                                        else ('softmax' if output_type=='classification'
                                                                                        else 'linear'))
-            output_input = x_L if (split_x and out_idx==0) else x_R if (split_x and out_idx==1) else x
+            output_input = x_L_local if ((out_idx==0) or (x_R_local is None)) else x_R_local
             output = layers.Dense(units=n_units,
                                 activation=output_activation,
-                                kernel_regularizer=regularizers.L1L2(l1=l1_reg, l2=l2_reg),
-                                kernel_initializer=self.createInitializer('glorot_uniform'), # TODO: regularizing the last layer is probably not ideal
+                                kernel_regularizer=regularizers.L1L2(l1=l1_reg, l2=l2_reg), # TODO: regularizing the last layer is probably not ideal
+                                kernel_initializer=self.createInitializer('glorot_uniform'), 
                                 bias_initializer=self.createInitializer('zeros') if final_activation_bias_initializer is None else final_activation_bias_initializer,
                                 name=out_feature)(output_input)
             outputs.append(output)
@@ -369,6 +313,8 @@ class Dense_NN(Prediction_Model):
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
     
     def create_dense_stack(self, input_layer, dense_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name):
+        if not dense_layers:
+            return input_layer
         x = layers.Flatten(name=f'dense_flatten_{name}')(input_layer)
         for layer_idx, units in enumerate(dense_layers):
             x = layers.Dense(units=units,
@@ -387,6 +333,8 @@ class Dense_NN(Prediction_Model):
         return x
     
     def create_cnn_stack(self, input_layer, cnn_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name=''):
+        if not cnn_layers:
+            return input_layer
         x = input_layer
         for layer_idx, (filters, kernel_size, kernel_stride, dilation_rate, maxpool) in enumerate(cnn_layers):
             x = layers.Conv1D(filters,
@@ -410,6 +358,8 @@ class Dense_NN(Prediction_Model):
         return x
     
     def create_lstm_stack(self, input_layer, lstm_layers, dropout, batchnorm, l1, l2, return_sequences, name=''):
+        if not lstm_layers:
+            return input_layer
         x = input_layer
         for layer_idx, (units, layer_return_sequences, maxpool, avgpool) in enumerate(lstm_layers):
             x = layers.LSTM(units, 
@@ -431,3 +381,34 @@ class Dense_NN(Prediction_Model):
             if dropout > 0.0:
                 x = layers.Dropout(dropout, seed=self._rnd_gen.integers(9999999), name=f'lstm_DO_{layer_idx}_{name}')(x)
         return x
+
+    def create_parallel_stack(self, split, x_L_local, x_R_local, x_L_global, x_R_global, stack_func, **args):
+        split_input= x_R_local is not None
+
+        if split:
+            x_L_local_new = stack_func(input_layer=x_L_local, 
+                                   name='L_local',
+                                   **args)
+            x_R_local_new = stack_func(input_layer=(x_R_local if split_input else x_L_local), 
+                                   name='R_local',
+                                   **args)
+            x_L_global_new = stack_func(input_layer=x_L_global, 
+                                   name='L_global',
+                                   **args)
+            x_R_global_new = stack_func(input_layer=(x_R_global if split_input else x_L_global), 
+                                   name='R_global',
+                                   **args)
+        else:
+            if split_input: 
+                x_L_local = layers.Concatenate(axis=-1)([x_L_local, x_R_local])
+                x_L_global = layers.Concatenate(axis=-1)([x_L_global, x_R_global])
+            
+            x_L_local_new = stack_func(input_layer=x_L_local, 
+                                   name='local',
+                                   **args)
+            x_R_local_new = None
+            x_L_global_new = stack_func(input_layer=x_L_global, 
+                                   name='global',
+                                   **args)
+            x_R_global_new = None
+        return x_L_local_new, x_R_local_new, x_L_global_new, x_R_global_new
