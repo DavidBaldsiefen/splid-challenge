@@ -20,7 +20,10 @@ def load_and_prepare_dataframes(data_dir, labels_dir, dtype=np.float32):
     # Load the labels
     if labels_dir is None:
         print("loading data without labels")
-    labels = None if labels_dir is None else pd.read_csv(labels_dir)
+    try:
+        labels = None if labels_dir is None else pd.read_csv(labels_dir)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"No label file found in \"{labels_dir}\". Did you download the dataset?")
 
     # load the input data from each csv
     data_files = list(data_dir.glob('*.csv'))
