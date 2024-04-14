@@ -123,13 +123,16 @@ def plot_prediction_curve(ds_gen, model, label_features=['EW_Node_Location_nb'],
     """Plot the linear labels and predictions for the given objects."""
     import matplotlib.pyplot as plt
 
-    ds, v_ds = ds_gen.get_datasets(batch_size=256,
+    datasets = ds_gen.get_datasets(batch_size=256,
                                 label_features=label_features,
                                 shuffle=False,
                                 with_identifier=True,
                                 train_keys=object_ids,
-                                val_keys=[ds_gen.val_keys[0]],
+                                val_keys=[],
+                                test_keys=[],
                                 stride=1)
+    
+    ds = datasets['train']
 
     identifiers = np.concatenate([element for element in ds.map(get_z_from_xyz).as_numpy_iterator()])
     labels = np.concatenate([[element[ft] for ft in label_features] for element in ds.map(get_y_from_xyz).as_numpy_iterator()], axis=1).transpose(1,0)
