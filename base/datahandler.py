@@ -389,6 +389,7 @@ class DatasetGenerator():
                         scaling_factor = 1.0
                         if node_class_multipliers:
                             scaling_factor = node_class_multipliers[node] # apply a custom multiplier, similar to a class weight
+                        # TODO: for very wide nb-labels, this may override the values set around other changepoints within the current one's proximity
                         sub_df.loc[timeindex-pad_len:timeindex + pad_len, f'{dir}_Node_Location_nb'] = np.asarray(pad_extended, dtype=np.float32)*scaling_factor
 
         # encode labels
@@ -571,7 +572,7 @@ class DatasetGenerator():
                 )
                 if self._linear_timeindex_as_overview and 'LinearTimeIndex' in input_features:
                     # places a 1 at the corresponding location that fits the overview features
-                    scaled_indices = np.arange(strided_obj_len) * (input_width/strided_obj_len)
+                    scaled_indices = np.arange(obj_lens[key])[obj_indices_to_keep] * (input_width/obj_lens[key])
                     inputs[current_row:current_row+strided_obj_len,:,input_features.index('LinearTimeIndex')] = np.zeros((strided_obj_len, input_width), dtype=np.float32)
                     inputs[np.arange(current_row,current_row+strided_obj_len),scaled_indices.astype(int),input_features.index('LinearTimeIndex')] = 1.0
             else:
@@ -687,20 +688,40 @@ class DatasetGenerator():
             datasets = {ds_type: ds.batch(batch_size) for ds_type, ds in datasets.items()}
         return datasets
     
-    def plot_dataset_item(self, ds_with_identifier, objectid, timeindex):
+    def plot_dataset_item(self, objectid, timeindex, convolve_input_stride=True):
         """Plot a dataset element at the specified objectid and timeindex. For debugging & visualization purposes."""
         import matplotlib.pyplot as plt # the import is placed down here so that plt is not required in the docker container
 
+        ds_with_identifier = self.create_ds_from_dataframes(self._preprocessed_dataframes,
+                                                            keys=[str(objectid)],
+                                                            input_features=self._input_features,
+                                                            overview_features_mean=self._overview_features_mean,
+                                                            overview_features_std=self._overview_features_std,
+                                                            overview_as_second_input=False,
+                                                            label_features=[],
+                                                            oneshot_input_discretization=1,
+                                                            oneshot_output_discretization=1,
+                                                            only_nodes=False,
+                                                            only_ew_sk=False,
+                                                            with_identifier=True,
+                                                            input_history_steps=self._input_history_steps,
+                                                            input_future_steps=self._input_future_steps,
+                                                            stride=2500,
+                                                            stride_offset=timeindex,
+                                                            keep_label_stride=1,
+                                                            input_stride=self._input_stride,
+                                                            convolve_input_stride=convolve_input_stride,
+                                                            padding=self._padding,
+                                                            verbose=0)
+
         # plot random dataset item for debugging
-        def filter_fn(x,y,z):
+        def filter_fn(x,z):
             return z[0]==objectid and z[1] == timeindex
         
-        inputs = np.asarray([element for element in ds_with_identifier.unbatch().filter(filter_fn).map(lambda x,y,z:x).as_numpy_iterator()])[0]['local_in']
+        inputs = np.asarray([element for element in ds_with_identifier.filter(filter_fn).map(lambda x,z:x).as_numpy_iterator()])[0]['local_in']
         #identifier = np.asarray([element for element in ds_with_identifier.unbatch().filter(filter_fn).map(lambda x,y,z:z).as_numpy_iterator()])
 
         ft_labels = self._input_features + [f'{ft} (overview-mean)' for ft in self._overview_features_mean] + [f'{ft} (overview-std)' for ft in self._overview_features_std]
-
-        print(ft_labels)
 
         fig, axes = plt.subplots(nrows=len(ft_labels), ncols=1, figsize=(16,1*len(ft_labels)))
         plt.tight_layout()
