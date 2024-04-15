@@ -27,9 +27,9 @@ SCALER_CLASSIFIER_DIR = Path(('' if DEBUG_MODE else '/') + 'models/classifier_sc
 TEST_DATA_DIR = Path(('dataset/phase_2/' if DEBUG_MODE else '/dataset/') + 'test')
 DEBUG_LABELS_DIR = Path('dataset/phase_2/test_label.csv')
 
-TEST_PREDS_FP = Path(('' if DEBUG_MODE else '/submission/') + 'submission.csv')
+TEST_PREDS_FP = Path('debug_submission.csv' if DEBUG_MODE else '/submission/submission.csv')
 
-FIXED_DIFF_TRANSFORM_MODELS = False
+FIXED_DIFF_TRANSFORM_MODELS = False # for use with the fixedDiffTransform (or any other newly trained) models
 
 # Load Data
 split_dataframes = datahandler.load_and_prepare_dataframes(TEST_DATA_DIR, labels_dir=None)
@@ -170,6 +170,7 @@ df_locs = pd.concat([df_locs] + initial_node_dfs)
 
 # =================================CLASSIFICATION==========================================
 
+
 classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER_DIR,
                                                     scaler_dir=SCALER_CLASSIFIER_DIR,
                                                     split_dataframes=split_dataframes,
@@ -225,7 +226,7 @@ classified_df = classifier.perform_submission_pipeline(classifier_dir=CLASSIFIER
                                                     add_daytime_feature=False,
                                                     add_yeartime_feature=False,
                                                     add_linear_timeindex=True,
-                                                    linear_timeindex_as_overview=FIXED_DIFF_TRANSFORM_MODELS, # the final classifier was trained without the linear timeindex as overview. In practise, this makes almost no difference
+                                                    linear_timeindex_as_overview=FIXED_DIFF_TRANSFORM_MODELS, # this was changed in the diff models to unify the approach
                                                     input_history_steps=32,
                                                     input_future_steps=256,
                                                     input_stride=1,

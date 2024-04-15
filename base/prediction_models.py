@@ -6,6 +6,7 @@ import numpy as np
 
 
 class Prediction_Model():
+    """Tensorflow model wrapper that covers some boilerplate code."""
     def __init__(self, seed=None):
         self._seed=seed
         self._model = None
@@ -24,6 +25,7 @@ class Prediction_Model():
         return self._model.predict(ds, verbose=verbose)
     
     def fit(self, train_ds, val_ds=None, epochs=100, early_stopping=0, save_best_only=False, target_metric='val_accuracy', callbacks=[], class_weight=None, plot_hist=False, verbose=1):
+        """Train the model using the specified parameters"""
         assert(self._model is not None)
 
         callbacks=callbacks
@@ -55,6 +57,7 @@ class Prediction_Model():
         return self._hist
     
     def plot_hist(self, hist, custom_keys=None):
+        """Plot training curves"""
         hist_keys = list(hist.history.keys())
         loss_keys = [k for k in hist_keys if 'loss' in k]
         acc_keys = [k for k in hist_keys if 'accuracy' in k]
@@ -78,6 +81,7 @@ class Prediction_Model():
         self._model.summary()
 
     def createInitializer(self, initializer, mean=None, stddev=None):
+        """Wrapper to create seeded initializers, aiding in reproducibility"""
         layer_seed = self._rnd_gen.integers(9999999)
         if initializer == 'glorot_uniform':
             return keras.initializers.GlorotUniform(seed=layer_seed)
@@ -313,6 +317,7 @@ class Dense_NN(Prediction_Model):
         self.compile(optimizer=optimizer, loss_fn=loss_functions[output_type], metrics=metrics[output_type])
     
     def create_dense_stack(self, input_layer, dense_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name):
+        """Create a stack of dense layers, optionally followed by batchnorm and dropout layers"""
         if not dense_layers:
             return input_layer
         x = layers.Flatten(name=f'dense_flatten_{name}')(input_layer)
@@ -333,6 +338,7 @@ class Dense_NN(Prediction_Model):
         return x
     
     def create_cnn_stack(self, input_layer, cnn_layers, dropout, batchnorm, batchnorm_before_relu, l1, l2, name=''):
+        """Create a stack of Conv1D layers, optionally followed by batchnorm, MaxPool and dropout layers"""
         if not cnn_layers:
             return input_layer
         x = input_layer
@@ -358,6 +364,7 @@ class Dense_NN(Prediction_Model):
         return x
     
     def create_lstm_stack(self, input_layer, lstm_layers, dropout, batchnorm, l1, l2, return_sequences, name=''):
+        """Create a stack of LSTM layers, optionally followed by batchnorm, MaxPool, AvgPool and dropout layers"""
         if not lstm_layers:
             return input_layer
         x = input_layer
@@ -383,6 +390,7 @@ class Dense_NN(Prediction_Model):
         return x
 
     def create_parallel_stack(self, split, x_L_local, x_R_local, x_L_global, x_R_global, stack_func, **args):
+        """Code that handles the creation of parallel stacks for multi-input models"""
         split_input= x_R_local is not None
 
         if split:

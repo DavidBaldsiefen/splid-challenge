@@ -49,17 +49,36 @@ def plot_ft_importance_bars(shap_values, feature_names, title_prefix=''):
         
         combined_df = pd.concat(per_class_series, axis=1)
         fig, ax  = plt.subplots(figsize=(11,6))
-        combined_df.plot(kind='barh', ax=ax, position=0.8, label='Feature importance sum')
+        combined_df.plot(kind='barh',
+                         ax=ax,
+                         position=0.8,
+                         label='Feature importance sum')
 
-        ax.set_title(title_prefix + f' Summed feature importance (output {shap_values_name})' + f'(Class {class_id})' if n_classes > 1 else '')
+        ax.set_title(title_prefix + f' Summed feature importance (output {shap_values_name[:2]})')
         ax.legend()
         plt.show()
 
-def plot_ft_importance_over_time(shap_values, feature_names, title_prefix=''):
+def plot_ft_importance_over_time(shap_values, feature_names, title_prefix='', savefile=None, time_hist=None, time_fut=None, time_stride=None, sum_over_classes=False):
     for shap_values_name, shap_values in shap_values.items():
-        df = pd.DataFrame(shap_values[0,:,:], columns=feature_names)
-        df['TIME'] = range(-shap_values.shape[1], 0)
+        n_classes = shap_values.shape[0]
+        if sum_over_classes:
+            shap_values[0,:,:] = np.sum(shap_values, axis=0)
+            n_classes=1
+        for class_id in range(n_classes):
+            df = pd.DataFrame(shap_values[class_id,:,:], columns=feature_names)
+            df['TIME'] = range(-shap_values.shape[1], 0)
+            if time_hist is not None and time_fut is not None and time_stride is not None:
+                df['TIME'] = range(-time_hist, time_fut, time_stride)
 
-        df.plot.area(x='TIME',figsize=(11, 6), cmap='viridis')
-        plt.title(title_prefix + f' Feature Importance over time (output {shap_values_name}) (Class 0)')
-        plt.show()
+            # Order features according to summed importance
+
+            df.plot.area(x='TIME',
+                        y = df[feature_names].sum().sort_values(inplace=False).index.to_list()[::-1],
+                        figsize=(11, 6),
+                        cmap='plasma',
+                        xlabel='Relative Timestep',
+                        ylabel='Importance')
+            plt.title(title_prefix + f' Feature Importance over time ({shap_values_name[:2]}' + (f' class {class_id})' if n_classes > 1 else (' - sum over all classes)' if sum_over_classes else ')')))
+            if savefile is not None:
+                plt.savefig(savefile + '_' + shap_values_name[:2] + '.png', dpi=1200, bbox_inches="tight")
+            plt.show()

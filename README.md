@@ -33,7 +33,7 @@
 │   ├── shap_analysis.py     # Code to perform SHAP feature analysis
 │   └── utils.py             # Miscellaneous code
 │
-├── dataset/                    # Dataset directory
+├── img/                        # Images used in this README
 ├── models/                     # Trained models and pre-fitted scalers
 ├── classifier_playground.ipynb # Jupyter notebook to train, evaluate and explore the classifier algorithm
 ├── classifier_sweeper.py       # Code to execute thorough parameter studies for the classifier
