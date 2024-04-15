@@ -3,6 +3,16 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# Dataset & Files
+dataset/*
+predictions/
+submission/dataset
+submission/base
+submission/submission
+wandb/
+tmp_model.hdf5
+best_model.hdf5
+
 # User-specific files
 *.rsuser
 *.suo
